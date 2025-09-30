@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useImageStore } from '../composables/useImageStore'
 import type { ImportedImageMeta } from '../types/images'
@@ -35,7 +35,7 @@ const activeImageInfo = computed(() => {
   const sizeInMb = image.size / (1024 * 1024)
   return {
     name: image.name,
-    dimension: image.width && image.height ? `${image.width} x ${image.height}` : 'Detecting…',
+    dimension: image.width && image.height ? `${image.width}×${image.height}` : '解析中…',
     size: sizeInMb >= 1 ? `${sizeInMb.toFixed(2)} MB` : `${(image.size / 1024).toFixed(0)} KB`,
     type: image.type,
     id: image.id,
@@ -76,7 +76,7 @@ function handleRemoveImage(id: string) {
   emit('images-updated', items.value)
 }
 
-function handleClearAll() {
+function handle清空All() {
   clear()
   emit('images-updated', items.value)
 }
@@ -155,15 +155,15 @@ onMounted(() => {
       @drop="handleDropWithEmit"
     >
       <div class="dropzone-content">
-        <p class="headline">Drag images here, or</p>
+        <p class="headline">将图片拖拽到此处，或</p>
         <div class="buttons">
-          <button type="button" class="primary" @click="triggerFileDialog">Select images</button>
+          <button type="button" class="primary" @click="triggerFileDialog">选择图片</button>
           <label class="outline">
-            Replace all
+            替换所有
             <input hidden multiple accept="image/*" type="file" @change="handleReplaceSelection" />
           </label>
         </div>
-        <p class="muted">Supports multi-select or whole folders (requires browsers that support `webkitdirectory`).</p>
+        <p class="muted">支持多张图片或整个文件夹（取决于浏览器是否支持 `webkitdirectory`）。</p>
         <input ref="fileInput" hidden multiple accept="image/*" type="file" @change="handleFileSelection" />
       </div>
     </div>
@@ -171,8 +171,8 @@ onMounted(() => {
     <div class="workspace-body" v-if="items.length">
       <aside class="sidebar">
         <header class="sidebar-header">
-          <h3>Imported images ({{ items.length }})</h3>
-          <button type="button" class="ghost" @click="handleClearAll">Clear</button>
+          <h3>已导入图片 ({{ items.length }})</h3>
+          <button type="button" class="ghost" @click="handle清空All">清空</button>
         </header>
         <ul class="image-list">
           <li
@@ -187,12 +187,12 @@ onMounted(() => {
             <div class="meta">
               <p class="name" :title="image.name">{{ image.name }}</p>
               <p class="info">
-                <span>{{ image.width && image.height ? `${image.width} x ${image.height}` : 'Unknown size' }}</span>
-                <span>&bull;</span>
+                <span>{{ image.width && image.height ? `${image.width}×${image.height}` : '未知尺寸' }}</span>
+                <span>•</span>
                 <span>{{ (image.size / 1024).toFixed(0) }} KB</span>
               </p>
             </div>
-            <button type="button" class="icon" @click.stop="handleRemoveImage(image.id)">&times;</button>
+            <button type="button" class="icon" @click.stop="handleRemoveImage(image.id)">×</button>
           </li>
         </ul>
       </aside>
@@ -200,25 +200,25 @@ onMounted(() => {
       <div class="preview">
         <header class="preview-header">
           <div>
-            <h3>Preview</h3>
+            <h3>预览</h3>
             <p v-if="activeImageInfo" class="muted">
-              {{ activeImageInfo.name }} · {{ activeImageInfo.dimension }} · {{ activeImageInfo.size }}
+              {{ activeImageInfo.name }} 路 {{ activeImageInfo.dimension }} 路 {{ activeImageInfo.size }}
             </p>
           </div>
           <div class="scale-controls">
             <label>
-              Zoom mode:
+              缩放模式：
               <select v-model="scaleMode">
-                <option value="contain">Contain (fit)</option>
-                <option value="cover">Cover (may crop)</option>
-                <option value="actual">Actual size</option>
+                <option value="contain">适应（留白）</option>
+                <option value="cover">填充（可能裁切）</option>
+                <option value="actual">原始尺寸</option>
               </select>
             </label>
           </div>
         </header>
         <div ref="canvasContainer" class="canvas-wrapper">
-          <canvas ref="canvasRef" class="preview-canvas">Canvas is not supported in this browser.</canvas>
-          <p v-if="!activeImage" class="muted empty">Select an image on the left to preview</p>
+          <canvas ref="canvasRef" class="preview-canvas">当前浏览器不支持 Canvas。</canvas>
+          <p v-if="!activeImage" class="muted empty">请选择左侧图片以预览</p>
         </div>
       </div>
     </div>
@@ -460,3 +460,7 @@ button.icon:hover {
   }
 }
 </style>
+
+
+
+
