@@ -1,10 +1,106 @@
-﻿<script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { fetchHealth, type HealthResponse } from './services/api'
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import {
+  deleteTemplate,
+  fetchFonts,
+  fetchHealth,
+  fetchTemplates,
+  saveTemplate,
+  type ExportConfig,
+  type HealthResponse,
+  type Template,
+  type TemplateRequest,
+  type TextWatermarkConfig,
+  type WatermarkConfig,
+} from './services/api'
+
+type TemplateForm = TemplateRequest
 
 const loading = ref(false)
 const error = ref<string | null>(null)
 const health = ref<HealthResponse | null>(null)
+
+const fonts = ref<string[]>([])
+const fontsLoading = ref(false)
+const templates = ref<Template[]>([])
+const templatesLoading = ref(false)
+const templateError = ref<string | null>(null)
+
+const selectedTemplateId = ref<string | null>(null)
+
+const defaultTextWatermark: TextWatermarkConfig = {
+  content: '示例水印',
+  fontFamily: 'Microsoft YaHei',
+  fontSize: 32,
+  bold: false,
+  italic: false,
+  color: '#FFFFFF',
+  opacity: 80,
+  shadow: {
+    color: 'rgba(0,0,0,0.4)',
+    offsetX: 2,
+    offsetY: 2,
+    blur: 4,
+  },
+}
+
+const initialExportConfig: ExportConfig = {
+  format: 'png',
+  naming: {
+    keepOriginal: true,
+    prefix: '',
+    suffix: '_watermark',
+  },
+}
+
+const templateForm = ref<TemplateForm>(createDefaultForm())
+
+const templateSaving = ref(false)
+const deleteBusyId = ref<string | null>(null)
+
+const availableFonts = computed(() => (fonts.value.length ? fonts.value : [defaultTextWatermark.fontFamily ?? 'Microsoft YaHei']))
+
+function createDefaultForm(): TemplateForm {
+  return {
+    name: '默认模板',
+    watermarkConfig: {
+      type: 'text',
+      text: { ...defaultTextWatermark },
+      layout: {
+        preset: 'bottom-right',
+        x: 0.9,
+        y: 0.9,
+        rotationDeg: 0,
+      },
+    },
+    exportConfig: { ...initialExportConfig, naming: { ...initialExportConfig.naming } },
+  }
+}
+
+function ensureTextConfig(config: WatermarkConfig) {
+  if (config.type === 'text') {
+    if (!config.text) {
+      config.text = { ...defaultTextWatermark }
+    }
+    if (!config.layout) {
+      config.layout = {
+        preset: 'bottom-right',
+        x: 0.9,
+        y: 0.9,
+        rotationDeg: 0,
+      }
+    }
+  }
+}
+
+function ensureExportConfig(config: ExportConfig) {
+  if (!config.format) {
+    config.format = 'png'
+  }
+  if (!config.naming) {
+    config.naming = { keepOriginal: true, prefix: '', suffix: '_watermark' }
+  }
+}
 
 async function loadHealth() {
   loading.value = true
@@ -13,14 +109,101 @@ async function loadHealth() {
     health.value = await fetchHealth()
   } catch (err) {
     console.error(err)
-    error.value = err instanceof Error ? err.message : 'Unknown error'
+    error.value = err instanceof Error ? err.message : '未知错误'
   } finally {
     loading.value = false
   }
 }
 
+async function loadFonts() {
+  fontsLoading.value = true
+  try {
+    fonts.value = await fetchFonts()
+  } catch (err) {
+    console.warn('字体加载失败', err)
+  } finally {
+    fontsLoading.value = false
+  }
+}
+
+async function loadTemplates() {
+  templatesLoading.value = true
+  templateError.value = null
+  try {
+    templates.value = await fetchTemplates()
+  } catch (err) {
+    console.error(err)
+    templateError.value = err instanceof Error ? err.message : '无法获取模板列表'
+  } finally {
+    templatesLoading.value = false
+  }
+}
+
+function resetForm() {
+  selectedTemplateId.value = null
+  templateForm.value = createDefaultForm()
+}
+
+function applyTemplateToForm(template: Template) {
+  selectedTemplateId.value = template.id
+  const cloned = JSON.parse(JSON.stringify(template)) as TemplateForm
+  ensureTextConfig(cloned.watermarkConfig)
+  ensureExportConfig(cloned.exportConfig)
+  templateForm.value = cloned
+}
+
+async function handleSaveTemplate() {
+  templateSaving.value = true
+  templateError.value = null
+  try {
+    const payload: TemplateRequest = {
+      ...templateForm.value,
+      watermarkConfig: JSON.parse(JSON.stringify(templateForm.value.watermarkConfig)),
+      exportConfig: JSON.parse(JSON.stringify(templateForm.value.exportConfig)),
+    }
+    ensureTextConfig(payload.watermarkConfig)
+    ensureExportConfig(payload.exportConfig)
+
+    const saved = await saveTemplate(payload)
+    await loadTemplates()
+    applyTemplateToForm(saved)
+  } catch (err) {
+    console.error(err)
+    templateError.value = err instanceof Error ? err.message : '保存模板失败'
+  } finally {
+    templateSaving.value = false
+  }
+}
+
+async function handleDeleteTemplate(id: string) {
+  deleteBusyId.value = id
+  templateError.value = null
+  try {
+    await deleteTemplate(id)
+    if (selectedTemplateId.value === id) {
+      resetForm()
+    }
+    await loadTemplates()
+  } catch (err) {
+    console.error(err)
+    templateError.value = err instanceof Error ? err.message : '删除模板失败'
+  } finally {
+    deleteBusyId.value = null
+  }
+}
+
+function formatDate(value: string) {
+  try {
+    return new Date(value).toLocaleString()
+  } catch (err) {
+    return value
+  }
+}
+
 onMounted(() => {
   void loadHealth()
+  void loadFonts()
+  void loadTemplates()
 })
 </script>
 
@@ -41,10 +224,142 @@ onMounted(() => {
           <template v-else>待检测</template>
         </span>
       </div>
-      <p v-if="health?.timestamp" class="timestamp">最近响应：{{ new Date(health.timestamp).toLocaleString() }}</p>
+      <p v-if="health?.timestamp" class="timestamp">最近响应：{{ formatDate(health.timestamp) }}</p>
       <button type="button" class="refresh" :disabled="loading" @click="loadHealth">
         {{ loading ? '刷新中...' : '重新检测' }}
       </button>
+    </section>
+
+    <section class="templates">
+      <header class="section-header">
+        <div>
+          <h2>水印模板管理</h2>
+          <p class="section-subtitle">保存/加载您的水印配置，快速应用到批量导出流程。</p>
+        </div>
+        <div class="fonts-info">
+          <span class="dot" :class="{ loading: fontsLoading }"></span>
+          <span>可用字体：{{ fonts.length || '加载中' }}</span>
+        </div>
+      </header>
+
+      <div class="template-grid">
+        <form class="template-form" @submit.prevent="handleSaveTemplate">
+          <h3>{{ selectedTemplateId ? '编辑模板' : '新建模板' }}</h3>
+
+          <label class="field">
+            <span>模板名称</span>
+            <input v-model.trim="templateForm.name" type="text" required maxlength="120" placeholder="输入模板名称" />
+          </label>
+
+          <fieldset class="field">
+            <legend>文本水印</legend>
+            <div class="field">
+              <span>水印内容</span>
+              <input
+                v-model="templateForm.watermarkConfig.text!.content"
+                type="text"
+                required
+                maxlength="200"
+                placeholder="例：版权所有 PhotoWatermark"
+              />
+            </div>
+
+            <div class="field row">
+              <label>
+                <span>字体</span>
+                <select v-model="templateForm.watermarkConfig.text!.fontFamily">
+                  <option v-for="font in availableFonts" :key="font" :value="font">{{ font }}</option>
+                </select>
+              </label>
+
+              <label>
+                <span>字号</span>
+                <input v-model.number="templateForm.watermarkConfig.text!.fontSize" type="number" min="8" max="300" />
+              </label>
+
+              <label>
+                <span>透明度 (%)</span>
+                <input v-model.number="templateForm.watermarkConfig.text!.opacity" type="number" min="0" max="100" />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="field">
+            <legend>导出配置</legend>
+            <div class="field row">
+              <label>
+                <span>输出格式</span>
+                <select v-model="templateForm.exportConfig.format">
+                  <option value="png">PNG（透明通道）</option>
+                  <option value="jpeg">JPEG</option>
+                </select>
+              </label>
+
+              <label>
+                <span>保留原文件名</span>
+                <select v-model="templateForm.exportConfig.naming!.keepOriginal">
+                  <option :value="true">是</option>
+                  <option :value="false">否</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="field row">
+              <label>
+                <span>前缀</span>
+                <input v-model="templateForm.exportConfig.naming!.prefix" type="text" maxlength="40" />
+              </label>
+              <label>
+                <span>后缀</span>
+                <input v-model="templateForm.exportConfig.naming!.suffix" type="text" maxlength="40" />
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="form-actions">
+            <button type="submit" class="primary" :disabled="templateSaving">
+              {{ templateSaving ? '保存中...' : '保存模板' }}
+            </button>
+            <button type="button" class="ghost" :disabled="templateSaving" @click="resetForm">重置</button>
+          </div>
+
+          <p v-if="templateError" class="error">{{ templateError }}</p>
+        </form>
+
+        <div class="template-list">
+          <div class="list-header">
+            <h3>已保存模板</h3>
+            <button type="button" class="ghost small" :disabled="templatesLoading" @click="loadTemplates">
+              {{ templatesLoading ? '刷新中...' : '刷新' }}
+            </button>
+          </div>
+
+          <p v-if="templatesLoading" class="muted">正在加载模板...</p>
+          <p v-else-if="!templates.length" class="muted">暂无模板。保存后将显示在此处。</p>
+
+          <ul v-else class="list">
+            <li v-for="item in templates" :key="item.id" :class="{ active: selectedTemplateId === item.id }">
+              <div class="list-main">
+                <div>
+                  <p class="list-title">{{ item.name }}</p>
+                  <p class="list-meta">最近更新：{{ formatDate(item.updatedAt) }}</p>
+                </div>
+                <div class="list-actions">
+                  <button type="button" class="ghost small" @click="applyTemplateToForm(item)">加载</button>
+                  <button
+                    type="button"
+                    class="danger small"
+                    :disabled="deleteBusyId === item.id"
+                    @click="handleDeleteTemplate(item.id)"
+                  >
+                    {{ deleteBusyId === item.id ? '删除中...' : '删除' }}
+                  </button>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
     </section>
 
     <section class="instructions">
@@ -52,7 +367,7 @@ onMounted(() => {
       <ol>
         <li>运行 <code>./mvnw spring-boot:run</code> 启动后端。</li>
         <li>运行 <code>npm run dev</code> 启动前端，访问 <code>http://localhost:5173</code>。</li>
-        <li>观察此页面的后端连通性状态，确认接口可用。</li>
+        <li>使用上述模板面板保存水印配置，为后续批量导出功能做准备。</li>
       </ol>
     </section>
   </main>
@@ -61,8 +376,8 @@ onMounted(() => {
 <style scoped>
 .page {
   margin: 0 auto;
-  max-width: 720px;
-  padding: 2.5rem 1.5rem 3rem;
+  max-width: 1120px;
+  padding: 2.5rem 1.75rem 4rem;
   font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
   color: #1f2937;
 }
@@ -82,7 +397,7 @@ onMounted(() => {
   border-radius: 12px;
   padding: 1.5rem;
   background-color: #f9fafb;
-  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
 }
 
 .status-row {
@@ -119,7 +434,7 @@ onMounted(() => {
   border: 1px solid #2563eb;
   background-color: #2563eb;
   color: #ffffff;
-  padding: 0.5rem 1.5rem;
+  padding: 0.55rem 1.6rem;
   border-radius: 999px;
   font-size: 0.95rem;
   cursor: pointer;
@@ -132,12 +447,257 @@ onMounted(() => {
 }
 
 .refresh:not(:disabled):hover {
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.25);
   transform: translateY(-1px);
 }
 
-.instructions {
+.templates {
   margin-top: 2.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  padding: 2rem;
+  background-color: #ffffff;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.section-header h2 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.section-subtitle {
+  margin: 0.35rem 0 0;
+  color: #6b7280;
+}
+
+.fonts-info {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #4b5563;
+  font-size: 0.95rem;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #22c55e;
+}
+
+.dot.loading {
+  background-color: #facc15;
+  animation: pulse 1.2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.template-form,
+.template-list {
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 1.5rem;
+  background-color: #f8fafc;
+}
+
+.template-form h3,
+.template-list h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+
+.field.row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.field.row > label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 140px;
+}
+
+input,
+select,
+textarea {
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  font-size: 0.95rem;
+  font-family: inherit;
+  background-color: #ffffff;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+fieldset {
+  border: 1px solid #d1d5db;
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+legend {
+  padding: 0 0.5rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.8rem;
+  margin-top: 1.25rem;
+}
+
+button.primary {
+  background-color: #2563eb;
+  border: 1px solid #2563eb;
+  color: #ffffff;
+  padding: 0.55rem 1.5rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+button.primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.primary:not(:disabled):hover {
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.25);
+  transform: translateY(-1px);
+}
+
+button.ghost {
+  background-color: transparent;
+  border: 1px solid #cbd5f5;
+  color: #1e3a8a;
+  padding: 0.55rem 1.25rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+button.ghost.small {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+button.danger {
+  background-color: #ef4444;
+  border: 1px solid #ef4444;
+  color: #ffffff;
+  padding: 0.45rem 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+button.danger.small {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+button.danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error {
+  margin-top: 0.75rem;
+  color: #dc2626;
+  font-size: 0.9rem;
+}
+
+.template-list .list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.template-list .list li {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  background-color: #ffffff;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.template-list .list li.active {
+  border-color: #2563eb;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.16);
+}
+
+.list-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.list-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.list-meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.list-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.muted {
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+.instructions {
+  margin-top: 3rem;
 }
 
 .instructions h2 {
@@ -158,5 +718,22 @@ code {
   padding: 0.1rem 0.35rem;
   border-radius: 6px;
   font-size: 0.95rem;
+}
+
+@media (max-width: 768px) {
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .list-main {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .list-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 </style>
