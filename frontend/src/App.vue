@@ -1,8 +1,9 @@
-﻿<script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import ImageWorkspace from './components/ImageWorkspace.vue'
 import TemplateFormPanel from './components/TemplateFormPanel.vue'
 import TemplateListPanel from './components/TemplateListPanel.vue'
+import { useExportJobs } from './composables/useExportJobs'
 import type { ImportedImageMeta } from './types/images'
 import {
   deleteLastSettings,
@@ -43,6 +44,36 @@ const savingLastSettings = ref(false)
 const clearingLastSettings = ref(false)
 
 const images = ref<ImportedImageMeta[]>([])
+
+const {
+  submitExport,
+  cancelJob,
+  latestJobs: exportJobs,
+  activeJob,
+  loading: exportLoading,
+  error: exportJobError,
+  refreshJobs,
+  dispose: disposeExport,
+} = useExportJobs()
+
+const exportSubmitError = ref<string | null>(null)
+const exportSuccessMessage = ref<string | null>(null)
+
+const canExport = computed(() => images.value.length > 0 && !exportLoading.value)
+const activeJobProgress = computed(() => (activeJob.value ? Math.round(activeJob.value.progress * 100) : 0))
+const hasActiveRunningJob = computed(
+  () =>
+    !!activeJob.value &&
+    (activeJob.value.status === 'RUNNING' || activeJob.value.status === 'QUEUED')
+)
+
+const statusLabels: Record<string, string> = {
+  QUEUED: '排队中',
+  RUNNING: '处理中',
+  COMPLETED: '已完成',
+  FAILED: '失败',
+  CANCELLED: '已取消',
+}
 
 const defaultTextWatermark: TextWatermarkConfig = {
   content: '示例水印',
@@ -281,6 +312,51 @@ async function handleClearLastSettings() {
   }
 }
 
+async function handleExport() {
+  exportSubmitError.value = null
+  exportSuccessMessage.value = null
+
+  if (!images.value.length) {
+    exportSubmitError.value = '请先导入图片'
+    return
+  }
+
+  try {
+    const payload = {
+      watermarkConfig: JSON.parse(JSON.stringify(templateForm.value.watermarkConfig)),
+      exportConfig: JSON.parse(JSON.stringify(templateForm.value.exportConfig)),
+    }
+
+    ensureTextConfig(payload.watermarkConfig)
+    ensureExportConfig(payload.exportConfig)
+
+    await submitExport({
+      files: images.value.map((item) => item.file),
+      config: payload,
+    })
+
+    exportSuccessMessage.value = '导出任务已提交，正在处理…'
+  } catch (err) {
+    console.error(err)
+    exportSubmitError.value = err instanceof Error ? err.message : '导出任务提交失败'
+  }
+}
+
+async function handleCancelExport(jobId: string) {
+  exportSubmitError.value = null
+  try {
+    await cancelJob(jobId)
+    exportSuccessMessage.value = '已请求取消任务'
+  } catch (err) {
+    console.error(err)
+    exportSubmitError.value = err instanceof Error ? err.message : '取消任务失败'
+  }
+}
+
+function renderJobStatus(status: string) {
+  return statusLabels[status] ?? status
+}
+
 function onTemplateFormUpdate(next: TemplateForm) {
   templateForm.value = next
 }
@@ -316,6 +392,11 @@ onMounted(() => {
   void loadFonts()
   void loadTemplates()
   void loadLastSettings()
+  void refreshJobs()
+})
+
+onBeforeUnmount(() => {
+  disposeExport()
 })
 </script>
 
@@ -393,6 +474,60 @@ onMounted(() => {
           @select="onTemplateSelect"
           @delete="handleDeleteTemplate"
         />
+      </div>
+    </section>
+
+    <section class="export-section">
+      <header class="section-header">
+        <div>
+          <h2>批量导出</h2>
+          <p class="section-subtitle">使用当前图片和水印配置生成导出任务。</p>
+        </div>
+        <div class="export-actions">
+          <button type="button" class="primary" :disabled="!canExport || exportLoading" @click="handleExport">
+            {{ exportLoading ? '提交中...' : '开始导出' }}
+          </button>
+          <button
+            v-if="activeJob && hasActiveRunningJob"
+            type="button"
+            class="ghost"
+            :disabled="exportLoading"
+            @click="handleCancelExport(activeJob.id)"
+          >
+            取消当前任务
+          </button>
+        </div>
+      </header>
+      <p v-if="exportSubmitError" class="error">{{ exportSubmitError }}</p>
+      <p v-else-if="exportJobError" class="error">{{ exportJobError }}</p>
+      <p v-else-if="exportSuccessMessage" class="success">{{ exportSuccessMessage }}</p>
+
+      <div v-if="activeJob" class="job-card">
+        <div class="job-header">
+          <span class="status-tag">{{ renderJobStatus(activeJob.status) }}</span>
+          <span class="muted">更新时间：{{ formatDate(activeJob.updatedAt) }}</span>
+        </div>
+        <p class="muted">{{ activeJob.message }}</p>
+        <div class="progress">
+          <div class="progress-bar" :style="{ width: activeJobProgress + '%' }"></div>
+        </div>
+        <p class="progress-text">
+          {{ activeJob.processedFiles }} / {{ activeJob.totalFiles }} （成功 {{ activeJob.successCount }}，失败
+          {{ activeJob.failureCount }}）
+        </p>
+      </div>
+
+      <div v-if="exportJobs.length" class="job-history">
+        <h4>任务历史</h4>
+        <ul>
+          <li v-for="job in exportJobs" :key="job.id">
+            <div class="history-main">
+              <span class="status-tag">{{ renderJobStatus(job.status) }}</span>
+              <span class="muted">{{ formatDate(job.updatedAt) }}</span>
+            </div>
+            <p class="history-message">{{ job.message || '暂无提示信息' }}</p>
+          </li>
+        </ul>
       </div>
     </section>
 
@@ -578,6 +713,107 @@ code {
   color: #1e3a8a;
   padding: 0.1rem 0.35rem;
   border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.export-section {
+  margin-top: 2.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  padding: 1.5rem 2rem;
+  background-color: #ffffff;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+}
+
+.export-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.job-card {
+  margin-top: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
+  background-color: #f8fafc;
+}
+
+.job-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.status-tag {
+  display: inline-block;
+  padding: 0.15rem 0.65rem;
+  border-radius: 999px;
+  background-color: #e2e8f0;
+  color: #1f2937;
+  font-size: 0.85rem;
+}
+
+.progress {
+  height: 8px;
+  background-color: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0.75rem 0;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.job-history {
+  margin-top: 1.5rem;
+}
+
+.job-history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.job-history li {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  background-color: #f1f5f9;
+}
+
+.history-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.history-message {
+  margin: 0.35rem 0 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.success {
+  color: #15803d;
   font-size: 0.95rem;
 }
 
