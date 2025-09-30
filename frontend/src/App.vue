@@ -67,6 +67,9 @@ const hasActiveRunningJob = computed(
     (activeJob.value.status === 'RUNNING' || activeJob.value.status === 'QUEUED')
 )
 
+const activeJobResults = computed(() => (activeJob.value?.results ?? []))
+const activeJobOutputDir = computed(() => activeJob.value?.outputDirectory ?? '')
+
 const statusLabels: Record<string, string> = {
   QUEUED: '排队中',
   RUNNING: '处理中',
@@ -515,6 +518,17 @@ onBeforeUnmount(() => {
           {{ activeJob.processedFiles }} / {{ activeJob.totalFiles }} （成功 {{ activeJob.successCount }}，失败
           {{ activeJob.failureCount }}）
         </p>
+        <p v-if="activeJobOutputDir" class="muted output-dir">输出目录：{{ activeJobOutputDir }}</p>
+        <div v-if="activeJobResults.length" class="result-list">
+          <h4>文件明细</h4>
+          <ul>
+            <li v-for="item in activeJobResults" :key="item.sourceName" :class="{ fail: !item.success }">
+              <span class="result-name">{{ item.sourceName }} → {{ item.outputName || '未生成' }}</span>
+              <span class="result-status">{{ item.success ? '成功' : '失败' }}</span>
+              <span v-if="!item.success && item.message" class="result-message">{{ item.message }}</span>
+            </li>
+          </ul>
+        </div>
       </div>
 
       <div v-if="exportJobs.length" class="job-history">
@@ -776,6 +790,61 @@ code {
   margin: 0;
   font-size: 0.9rem;
   color: #475569;
+}
+
+.output-dir {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+}
+
+.result-list {
+  margin-top: 1rem;
+}
+
+.result-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.result-list li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  background-color: #ebf5ff;
+  flex-wrap: wrap;
+}
+
+.result-list li.fail {
+  border-color: #fecaca;
+  background-color: #fee2e2;
+}
+
+.result-name {
+  flex: 1 1 auto;
+  font-weight: 600;
+  color: #1e3a8a;
+}
+
+.result-status {
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.result-list li.fail .result-status {
+  color: #b91c1c;
+}
+
+.result-message {
+  flex: 1 1 100%;
+  color: #b91c1c;
+  font-size: 0.9rem;
 }
 
 .job-history {

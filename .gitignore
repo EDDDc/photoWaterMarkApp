@@ -17,3 +17,6 @@ Thumbs.db
 # Local npm cache
 .npm-cache/
 
+tar-photos/exports/
+tar-photos/templates/
+
