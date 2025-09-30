@@ -64,7 +64,7 @@ npm run build
 3. 打开“批量导出”面板，点击“开始导出”；
 4. 面板会显示任务进度、当前处理文件，可在执行中“取消当前任务”。
 
-若未指定输出目录，导出结果默认写入 `%APPDATA%/PhotoWatermark/exports/<timestamp>`。
+若未指定输出目录，导出结果默认写入仓库根目录下的 `tar-photos/exports/<timestamp>`（可在 `backend/src/main/resources/application.properties` 修改 `app.storage.base-dir`）。
 
 ## API overview
 
