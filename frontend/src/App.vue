@@ -1,6 +1,8 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import ImageWorkspace from './components/ImageWorkspace.vue'
+import TemplateFormPanel from './components/TemplateFormPanel.vue'
+import TemplateListPanel from './components/TemplateListPanel.vue'
 import type { ImportedImageMeta } from './types/images'
 import {
   deleteLastSettings,
@@ -73,6 +75,7 @@ const templateSaving = ref(false)
 const deleteBusyId = ref<string | null>(null)
 
 const availableFonts = computed(() => (fonts.value.length ? fonts.value : [defaultTextWatermark.fontFamily ?? 'Microsoft YaHei']))
+const lastSettingsDisplay = computed(() => formatDate(lastSettingsTimestamp.value))
 
 function createDefaultForm(): TemplateForm {
   return {
@@ -278,7 +281,22 @@ async function handleClearLastSettings() {
   }
 }
 
-function formatDate(value: string | null) {
+function onTemplateFormUpdate(next: TemplateForm) {
+  templateForm.value = next
+}
+
+function onTemplateSelect(id: string) {
+  const template = templates.value.find((item) => item.id === id)
+  if (template) {
+    applyTemplateToForm(template)
+  }
+}
+
+function onTemplatesRefresh() {
+  void loadTemplates()
+}
+
+function formatDate(value: string | null): string | null {
   if (!value) {
     return null
   }
@@ -287,6 +305,10 @@ function formatDate(value: string | null) {
   } catch (err) {
     return value
   }
+}
+
+function formatTemplateDate(iso: string): string | null {
+  return formatDate(iso) ?? iso
 }
 
 onMounted(() => {
@@ -344,157 +366,33 @@ onMounted(() => {
       </header>
 
       <div class="template-grid">
-        <form class="template-form" @submit.prevent="handleSaveTemplate">
-          <h3>{{ selectedTemplateId ? '编辑模板' : '新建模板' }}</h3>
+        <TemplateFormPanel
+          :form="templateForm"
+          :available-fonts="availableFonts"
+          :template-saving="templateSaving"
+          :template-error="templateError"
+          :last-settings-timestamp="lastSettingsDisplay ?? ''"
+          :last-settings-loading="lastSettingsLoading"
+          :saving-last-settings="savingLastSettings"
+          :clearing-last-settings="clearingLastSettings"
+          :last-settings-error="lastSettingsError"
+          @update:form="onTemplateFormUpdate"
+          @reset="resetForm"
+          @save-template="handleSaveTemplate"
+          @save-last-settings="handleSaveLastSettings"
+          @clear-last-settings="handleClearLastSettings"
+        />
 
-          <label class="field">
-            <span>模板名称</span>
-            <input v-model.trim="templateForm.name" type="text" required maxlength="120" placeholder="输入模板名称" />
-          </label>
-
-          <fieldset class="field">
-            <legend>文本水印</legend>
-            <div class="field">
-              <span>水印内容</span>
-              <input
-                v-model="templateForm.watermarkConfig.text!.content"
-                type="text"
-                required
-                maxlength="200"
-                placeholder="例：版权所有 PhotoWatermark"
-              />
-            </div>
-
-            <div class="field row">
-              <label>
-                <span>字体</span>
-                <select v-model="templateForm.watermarkConfig.text!.fontFamily">
-                  <option v-for="font in availableFonts" :key="font" :value="font">{{ font }}</option>
-                </select>
-              </label>
-
-              <label>
-                <span>字号</span>
-                <input v-model.number="templateForm.watermarkConfig.text!.fontSize" type="number" min="8" max="300" />
-              </label>
-
-              <label>
-                <span>透明度 (%)</span>
-                <input v-model.number="templateForm.watermarkConfig.text!.opacity" type="number" min="0" max="100" />
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset class="field">
-            <legend>导出配置</legend>
-            <div class="field row">
-              <label>
-                <span>输出格式</span>
-                <select v-model="templateForm.exportConfig.format">
-                  <option value="png">PNG（透明通道）</option>
-                  <option value="jpeg">JPEG</option>
-                </select>
-              </label>
-
-              <label>
-                <span>保留原文件名</span>
-                <select v-model="templateForm.exportConfig.naming!.keepOriginal">
-                  <option :value="true">是</option>
-                  <option :value="false">否</option>
-                </select>
-              </label>
-            </div>
-
-            <div class="field row">
-              <label>
-                <span>前缀</span>
-                <input v-model="templateForm.exportConfig.naming!.prefix" type="text" maxlength="40" />
-              </label>
-              <label>
-                <span>后缀</span>
-                <input v-model="templateForm.exportConfig.naming!.suffix" type="text" maxlength="40" />
-              </label>
-            </div>
-          </fieldset>
-
-          <div class="form-actions">
-            <button type="submit" class="primary" :disabled="templateSaving">
-              {{ templateSaving ? '保存中...' : '保存模板' }}
-            </button>
-            <button type="button" class="ghost" :disabled="templateSaving" @click="resetForm">重置</button>
-          </div>
-
-          <div class="last-settings-panel">
-            <div class="last-settings-header">
-              <div>
-                <h4>默认设置</h4>
-                <p class="muted">将当前表单保存为“上次使用的设置”，下次打开应用时会自动加载。</p>
-              </div>
-              <div class="last-settings-meta">
-                <span v-if="lastSettingsLoading" class="muted">读取中...</span>
-                <span v-else-if="lastSettingsTimestamp" class="muted">最近更新：{{ formatDate(lastSettingsTimestamp) }}</span>
-                <span v-else class="muted">尚未保存默认设置</span>
-              </div>
-            </div>
-
-            <div class="last-settings-actions">
-              <button
-                type="button"
-                class="outline"
-                :disabled="savingLastSettings || templateSaving"
-                @click="handleSaveLastSettings"
-              >
-                {{ savingLastSettings ? '保存中...' : '保存为默认' }}
-              </button>
-              <button
-                type="button"
-                class="ghost"
-                :disabled="clearingLastSettings || !lastSettingsTimestamp"
-                @click="handleClearLastSettings"
-              >
-                {{ clearingLastSettings ? '清除中...' : '清除默认' }}
-              </button>
-            </div>
-
-            <p v-if="lastSettingsError" class="error">{{ lastSettingsError }}</p>
-          </div>
-
-          <p v-if="templateError" class="error">{{ templateError }}</p>
-        </form>
-
-        <div class="template-list">
-          <div class="list-header">
-            <h3>已保存模板</h3>
-            <button type="button" class="ghost small" :disabled="templatesLoading" @click="loadTemplates">
-              {{ templatesLoading ? '刷新中...' : '刷新' }}
-            </button>
-          </div>
-
-          <p v-if="templatesLoading" class="muted">正在加载模板...</p>
-          <p v-else-if="!templates.length" class="muted">暂无模板。保存后将显示在此处。</p>
-
-          <ul v-else class="list">
-            <li v-for="item in templates" :key="item.id" :class="{ active: selectedTemplateId === item.id }">
-              <div class="list-main">
-                <div>
-                  <p class="list-title">{{ item.name }}</p>
-                  <p class="list-meta">最近更新：{{ formatDate(item.updatedAt) }}</p>
-                </div>
-                <div class="list-actions">
-                  <button type="button" class="ghost small" @click="applyTemplateToForm(item)">加载</button>
-                  <button
-                    type="button"
-                    class="danger small"
-                    :disabled="deleteBusyId === item.id"
-                    @click="handleDeleteTemplate(item.id)"
-                  >
-                    {{ deleteBusyId === item.id ? '删除中...' : '删除' }}
-                  </button>
-                </div>
-              </div>
-            </li>
-          </ul>
-        </div>
+        <TemplateListPanel
+          :templates="templates"
+          :selected-id="selectedTemplateId"
+          :loading="templatesLoading"
+          :delete-busy-id="deleteBusyId"
+          :format-date="formatTemplateDate"
+          @refresh="onTemplatesRefresh"
+          @select="onTemplateSelect"
+          @delete="handleDeleteTemplate"
+        />
       </div>
     </section>
 
@@ -587,12 +485,12 @@ onMounted(() => {
   transform: translateY(-1px);
 }
 
-.workspace-section {
+.workspace-section,
+.templates {
   margin-top: 2.5rem;
 }
 
 .templates {
-  margin-top: 2.5rem;
   border: 1px solid #e5e7eb;
   border-radius: 18px;
   padding: 2rem;
@@ -654,231 +552,9 @@ onMounted(() => {
   gap: 1.5rem;
 }
 
-.template-form,
-.template-list {
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  padding: 1.5rem;
-  background-color: #f8fafc;
-}
-
-.template-form h3,
-.template-list h3 {
-  margin-top: 0;
-  margin-bottom: 1rem;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  margin-bottom: 1rem;
-  font-size: 0.95rem;
-}
-
-.field.row {
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 1rem;
-}
-
-.field.row > label {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  min-width: 140px;
-}
-
-input,
-select,
-textarea {
-  padding: 0.55rem 0.75rem;
-  border-radius: 10px;
-  border: 1px solid #d1d5db;
-  font-size: 0.95rem;
-  font-family: inherit;
-  background-color: #ffffff;
-}
-
-input:focus,
-select:focus,
-textarea:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-}
-
-fieldset {
-  border: 1px solid #d1d5db;
-  border-radius: 14px;
-  padding: 1rem;
-}
-
-legend {
-  padding: 0 0.5rem;
-  font-weight: 600;
-  color: #374151;
-}
-
-.form-actions {
-  display: flex;
-  gap: 0.8rem;
-  margin-top: 1.25rem;
-}
-
-button.primary {
-  background-color: #2563eb;
-  border: 1px solid #2563eb;
-  color: #ffffff;
-  padding: 0.55rem 1.5rem;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: transform 150ms ease, box-shadow 150ms ease;
-}
-
-button.primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-button.primary:not(:disabled):hover {
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.25);
-  transform: translateY(-1px);
-}
-
-button.ghost {
-  background-color: transparent;
-  border: 1px solid #cbd5f5;
-  color: #1e3a8a;
-  padding: 0.55rem 1.25rem;
-  border-radius: 10px;
-  cursor: pointer;
-}
-
-button.ghost.small {
-  padding: 0.35rem 0.9rem;
-  font-size: 0.85rem;
-}
-
-button.danger {
-  background-color: #ef4444;
-  border: 1px solid #ef4444;
-  color: #ffffff;
-  padding: 0.45rem 1rem;
-  border-radius: 10px;
-  cursor: pointer;
-}
-
-button.danger.small {
-  padding: 0.35rem 0.75rem;
-  font-size: 0.85rem;
-}
-
-button.danger:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-button.outline {
-  background-color: transparent;
-  border: 1px solid #2563eb;
-  color: #2563eb;
-  padding: 0.55rem 1.25rem;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: transform 150ms ease, box-shadow 150ms ease;
-}
-
-button.outline:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-button.outline:not(:disabled):hover {
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.15);
-  transform: translateY(-1px);
-}
-
-.error {
-  margin-top: 0.75rem;
-  color: #dc2626;
-  font-size: 0.9rem;
-}
-
-.template-list .list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.template-list .list li {
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 0.85rem 1rem;
-  background-color: #ffffff;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
-}
-
-.template-list .list li.active {
-  border-color: #2563eb;
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.16);
-}
-
-.list-main {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.list-title {
-  margin: 0;
-  font-weight: 600;
-}
-
-.list-meta {
-  margin: 0.35rem 0 0;
-  font-size: 0.85rem;
-  color: #6b7280;
-}
-
-.list-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
 .muted {
   color: #6b7280;
   font-size: 0.95rem;
-}
-
-.last-settings-panel {
-  margin-top: 1.5rem;
-  border: 1px dashed #94a3b8;
-  border-radius: 14px;
-  padding: 1rem 1.25rem;
-  background-color: #eef2ff;
-}
-
-.last-settings-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-}
-
-.last-settings-header h4 {
-  margin: 0 0 0.5rem;
-}
-
-.last-settings-actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
 }
 
 .instructions {
@@ -910,20 +586,6 @@ code {
     flex-direction: column;
     align-items: flex-start;
   }
-
-  .list-main {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .list-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  .last-settings-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
 }
 </style>
+
