@@ -25,22 +25,20 @@ const {
 const fileInput = ref<HTMLInputElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const canvasContainer = ref<HTMLDivElement | null>(null)
-const lastDrawnId = ref<string | null>(null)
 const scaleMode = ref<'contain' | 'cover' | 'actual'>('contain')
 
 const activeImageInfo = computed(() => {
-  if (!activeImage.value) {
+  const image = activeImage.value
+  if (!image) {
     return null
   }
-  const sizeInMb = activeImage.value.size / (1024 * 1024)
+  const sizeInMb = image.size / (1024 * 1024)
   return {
-    name: activeImage.value.name,
-    dimension: activeImage.value.width && activeImage.value.height
-      ? `${activeImage.value.width} × ${activeImage.value.height}`
-      : '解析中…',
-    size: sizeInMb >= 1 ? `${sizeInMb.toFixed(2)} MB` : `${(activeImage.value.size / 1024).toFixed(0)} KB`,
-    type: activeImage.value.type,
-    id: activeImage.value.id,
+    name: image.name,
+    dimension: image.width && image.height ? `${image.width} x ${image.height}` : 'Detecting…',
+    size: sizeInMb >= 1 ? `${sizeInMb.toFixed(2)} MB` : `${(image.size / 1024).toFixed(0)} KB`,
+    type: image.type,
+    id: image.id,
   }
 })
 
@@ -121,14 +119,12 @@ function drawImageToCanvas(image: ImportedImageMeta) {
     const x = (width - drawWidth) / 2
     const y = (height - drawHeight) / 2
     ctx.drawImage(imgElement, x, y, drawWidth, drawHeight)
-    URL.revokeObjectURL(imgElement.src)
   }
   imgElement.onerror = () => {
-    ctx.clearRect(0, 0, width, height)
-    URL.revokeObjectURL(imgElement.src)
+    const ctx = canvas.getContext('2d')
+    ctx?.clearRect(0, 0, width, height)
   }
   imgElement.src = image.objectUrl
-  lastDrawnId.value = image.id
 }
 
 watch([activeImage, scaleMode], ([image]) => {
@@ -138,7 +134,6 @@ watch([activeImage, scaleMode], ([image]) => {
       const ctx = canvas.getContext('2d')
       ctx?.clearRect(0, 0, canvas.width, canvas.height)
     }
-    lastDrawnId.value = null
     return
   }
   drawImageToCanvas(image)
@@ -160,15 +155,15 @@ onMounted(() => {
       @drop="handleDropWithEmit"
     >
       <div class="dropzone-content">
-        <p class="headline">将图片拖拽到此处，或</p>
+        <p class="headline">Drag images here, or</p>
         <div class="buttons">
-          <button type="button" class="primary" @click="triggerFileDialog">选择图片</button>
+          <button type="button" class="primary" @click="triggerFileDialog">Select images</button>
           <label class="outline">
-            替换所有
+            Replace all
             <input hidden multiple accept="image/*" type="file" @change="handleReplaceSelection" />
           </label>
         </div>
-        <p class="muted">支持多张图片或整个文件夹（取决于浏览器支持 `webkitdirectory`）。</p>
+        <p class="muted">Supports multi-select or whole folders (requires browsers that support `webkitdirectory`).</p>
         <input ref="fileInput" hidden multiple accept="image/*" type="file" @change="handleFileSelection" />
       </div>
     </div>
@@ -176,8 +171,8 @@ onMounted(() => {
     <div class="workspace-body" v-if="items.length">
       <aside class="sidebar">
         <header class="sidebar-header">
-          <h3>已导入图片 ({{ items.length }})</h3>
-          <button type="button" class="ghost" @click="handleClearAll">清空</button>
+          <h3>Imported images ({{ items.length }})</h3>
+          <button type="button" class="ghost" @click="handleClearAll">Clear</button>
         </header>
         <ul class="image-list">
           <li
@@ -192,12 +187,12 @@ onMounted(() => {
             <div class="meta">
               <p class="name" :title="image.name">{{ image.name }}</p>
               <p class="info">
-                <span>{{ image.width && image.height ? `${image.width}×${image.height}` : '未知尺寸' }}</span>
-                <span>•</span>
+                <span>{{ image.width && image.height ? `${image.width} x ${image.height}` : 'Unknown size' }}</span>
+                <span>&bull;</span>
                 <span>{{ (image.size / 1024).toFixed(0) }} KB</span>
               </p>
             </div>
-            <button type="button" class="icon" @click.stop="handleRemoveImage(image.id)">×</button>
+            <button type="button" class="icon" @click.stop="handleRemoveImage(image.id)">&times;</button>
           </li>
         </ul>
       </aside>
@@ -205,25 +200,25 @@ onMounted(() => {
       <div class="preview">
         <header class="preview-header">
           <div>
-            <h3>预览</h3>
+            <h3>Preview</h3>
             <p v-if="activeImageInfo" class="muted">
               {{ activeImageInfo.name }} · {{ activeImageInfo.dimension }} · {{ activeImageInfo.size }}
             </p>
           </div>
           <div class="scale-controls">
             <label>
-              缩放模式：
+              Zoom mode:
               <select v-model="scaleMode">
-                <option value="contain">适应（留白）</option>
-                <option value="cover">填充（可能裁切）</option>
-                <option value="actual">原始尺寸</option>
+                <option value="contain">Contain (fit)</option>
+                <option value="cover">Cover (may crop)</option>
+                <option value="actual">Actual size</option>
               </select>
             </label>
           </div>
         </header>
         <div ref="canvasContainer" class="canvas-wrapper">
-          <canvas ref="canvasRef" class="preview-canvas">当前浏览器不支持 Canvas。</canvas>
-          <p v-if="!activeImage" class="muted empty">请选择左侧图片以预览</p>
+          <canvas ref="canvasRef" class="preview-canvas">Canvas is not supported in this browser.</canvas>
+          <p v-if="!activeImage" class="muted empty">Select an image on the left to preview</p>
         </div>
       </div>
     </div>
@@ -437,8 +432,7 @@ button.icon:hover {
   border: 1px solid rgba(148, 163, 184, 0.5);
   border-radius: 12px;
   overflow: hidden;
-  background: repeating-conic-gradient(#1e293b 0% 25%, transparent 0% 50%)
-    50% / 20px 20px;
+  background: repeating-conic-gradient(#1e293b 0% 25%, transparent 0% 50%) 50% / 20px 20px;
 }
 
 .preview-canvas {

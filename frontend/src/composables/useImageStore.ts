@@ -14,11 +14,9 @@ async function loadImageDimensions(url: string): Promise<{ width: number; height
     const img = new Image()
     img.onload = () => {
       resolve({ width: img.width, height: img.height })
-      URL.revokeObjectURL(img.src)
     }
     img.onerror = () => {
       resolve(null)
-      URL.revokeObjectURL(img.src)
     }
     img.src = url
   })
