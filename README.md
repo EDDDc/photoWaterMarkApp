@@ -4,9 +4,9 @@ Spring Boot + Vue 3 application for batch applying watermarks to local images on
 
 ## Project structure
 
-- `backend/` 鈥?Spring Boot 3 service exposing `/api` endpoints.
-- `frontend/` 鈥?Vue 3 + TypeScript SPA that consumes the backend.
-- `docs/` 鈥?Product requirement document and supplementary design notes.
+- `backend/` – Spring Boot 3 service exposing `/api` endpoints.
+- `frontend/` – Vue 3 + TypeScript SPA that consumes the backend.
+- `docs/` – Product requirement document and supplementary design notes.
 
 ## Prerequisites
 
@@ -33,8 +33,13 @@ npm install
 npm run dev
 ```
 
-Visit `http://localhost:5173` in a Chromium-based browser. Vite proxies `/api/*` calls to the local backend. 鐧诲綍椤甸潰鍖呭惈锛?
-- 鍚庣鍋ュ悍妫€娴嬶紙/api/health锛夈€?- 妯℃澘绠＄悊闈㈡澘锛屽彲淇濆瓨/缂栬緫/鍒犻櫎姘村嵃妯℃澘骞跺疄鏃惰鍙栧悗绔暟鎹€?- 瀛椾綋鏋氫妇缁撴灉锛屽彲鐢ㄤ簬鎻愮ず鍓嶇灞曠ず鍝簺瀛椾綋宸茬粡鍦ㄧ郴缁熶腑鍙敤銆?
+Visit `http://localhost:5173` in a Chromium-based browser. Vite proxies `/api/*` calls to the local backend。首页包含：
+
+- 后端健康检测（`/api/health`）。
+- 模板管理面板，可保存/编辑/删除水印模板并实时读取后端数据。
+- 字体枚举结果，提醒哪些字体已经在系统中安装并可用于水印。
+- 图片导入与预览工作区，支持拖拽或选择文件、图片列表、Canvas 预览及缩放模式切换。
+
 ### 3. Run automated checks
 
 ```bash
@@ -45,29 +50,38 @@ cd ../frontend
 npm run build
 ```
 
-The frontend build step compiles TypeScript (via `vue-tsc`) and produces production assets. 杩愯瀹屾垚鍚庡彲鍒犻櫎 `frontend/dist/`锛堝凡鍒楀叆 `.gitignore`锛夈€?
+The frontend build step compiles TypeScript (via `vue-tsc`) and produces production assets。运行完成后可删除 `frontend/dist/`（已在 `.gitignore` 中忽略）。
+
 ## API overview
 
-| Method | Path                   | Description                       |
-| ------ | ---------------------- | --------------------------------- |
-| GET    | `/api/health`          | 鍋ュ悍妫€鏌ワ紝杩斿洖鏈嶅姟鐘舵€佷笌鏃堕棿鎴炽€?| GET    | `/api/fonts`           | 鍒楀嚭鎿嶄綔绯荤粺鍙敤瀛椾綋锛堟寜鍚嶇О鎺掑簭锛夈€?| GET    | `/api/templates`       | 鑾峰彇宸蹭繚瀛樼殑姘村嵃妯℃澘鍒楄〃銆?| GET    | `/api/templates/{id}`  | 璇诲彇鍗曚釜妯℃澘璇︽儏銆?               |
-| POST   | `/api/templates`       | 鏂板缓鎴栨洿鏂版ā鏉匡紙鏍规嵁 `id` 鍒ゆ柇锛夈€倈
-| DELETE | `/api/templates/{id}`  | 鍒犻櫎鎸囧畾妯℃澘銆?                   |
+| Method | Path                   | Description                                   |
+| ------ | ---------------------- | --------------------------------------------- |
+| GET    | `/api/health`          | 健康检查，返回服务状态与时间戳。               |
+| GET    | `/api/fonts`           | 列出操作系统可用字体（按名称排序）。           |
+| GET    | `/api/templates`       | 获取已保存的水印模板列表。                     |
+| GET    | `/api/templates/{id}`  | 读取单个模板详情。                             |
+| POST   | `/api/templates`       | 新建或更新模板（根据 `id` 判断）。             |
+| DELETE | `/api/templates/{id}`  | 删除指定模板。                                 |
+| GET    | `/api/settings/last`   | 读取最近一次保存的全局设置（无内容返回 204）。 |
+| POST   | `/api/settings/last`   | 保存最近一次使用的设置，供下次启动加载。       |
+| DELETE | `/api/settings/last`   | 清除最近一次使用的设置。                       |
 
-璇锋眰/鍝嶅簲閲囩敤 JSON锛屽墠绔ず渚嬫帴鍙ｅ畾涔変綅浜?`frontend/src/services/api.ts`銆?
+请求/响应均采用 JSON 格式，前端示例接口定义见 `frontend/src/services/api.ts`。
+
 ## Data storage
 
-榛樿瀛樺偍鐩綍閬靛惊锛?
-- Windows锛歚%APPDATA%/PhotoWatermark`
-- 鍏朵粬绯荤粺锛堝紑鍙戞祴璇曠敤锛夛細`${user.home}/.photo-watermark`
+默认存储目录：
 
-妯℃澘浠?JSON 鏂囦欢褰㈠紡淇濆瓨鍦?`templates/` 瀛愮洰褰曘€備緥濡傦細
+- Windows：`%APPDATA%/PhotoWatermark`
+- 其他系统（开发测试场景）：`${user.home}/.photo-watermark`
+
+模板以 JSON 文件形式保存在 `templates/` 子目录，例如：
 
 ```
 %APPDATA%/PhotoWatermark/templates/{templateId}.json
 ```
 
-鑻ラ渶瑕佽嚜瀹氫箟鐩綍锛屽彲鍦?`backend/src/main/resources/application.properties` 涓缃細
+最近一次设置保存在 `settings/last.json`。如需指定自定义目录，可在 `backend/src/main/resources/application.properties` 中设置：
 
 ```
 app.storage.base-dir=E:/PhotoWatermarkData
@@ -75,4 +89,6 @@ app.storage.base-dir=E:/PhotoWatermarkData
 
 ## Next steps
 
-- 鎵╁睍鍚庣锛氬疄鐜版按鍗版覆鏌撱€佸浘鐗囧鍏ユ壒澶勭悊銆佸鍑洪槦鍒椾笌杩涘害 API銆?- 鎵╁睍鍓嶇锛氭帴鍏ュ浘鐗囧垪琛ㄣ€侀瑙堢敾甯冦€佹嫋鎷藉畾浣嶅拰瀵煎嚭娴佺▼ UI銆?- 鎵撳寘涓庡彂甯冿細浣跨敤 `jpackage` 鐢熸垚鑷甫杩愯鏃剁殑 Windows 瀹夎鍖?缁胯壊鐗堬紝骞跺湪 GitHub Release 鎻愪緵涓嬭浇銆
+- 扩展后端：实现水印渲染流程、图片批量导出、进度/取消 API。
+- 扩展前端：接入图片列表与预览画布的水印叠加、拖拽定位和导出流程。
+- 打包与发布：使用 `jpackage` 生成自带运行时的 Windows 安装包/绿色版，并在 GitHub Release 提供下载。

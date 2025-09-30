@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import ImageWorkspace from './components/ImageWorkspace.vue'
+import type { ImportedImageMeta } from './types/images'
 import {
   deleteLastSettings,
   deleteTemplate,
@@ -37,6 +39,8 @@ const lastSettingsLoading = ref(false)
 const lastSettingsError = ref<string | null>(null)
 const savingLastSettings = ref(false)
 const clearingLastSettings = ref(false)
+
+const images = ref<ImportedImageMeta[]>([])
 
 const defaultTextWatermark: TextWatermarkConfig = {
   content: '示例水印',
@@ -115,6 +119,10 @@ function ensureExportConfig(config: ExportConfig) {
   }
 }
 
+function handleImagesUpdated(list: ImportedImageMeta[]) {
+  images.value = list
+}
+
 async function loadHealth() {
   loading.value = true
   error.value = null
@@ -185,13 +193,12 @@ function applyTemplateToForm(template: Template) {
 }
 
 function applyLastSettings(settings: LastSettings) {
-  const form = templateForm.value
   const clonedWatermark = JSON.parse(JSON.stringify(settings.watermarkConfig)) as WatermarkConfig
   const clonedExport = JSON.parse(JSON.stringify(settings.exportConfig)) as ExportConfig
   ensureTextConfig(clonedWatermark)
   ensureExportConfig(clonedExport)
   templateForm.value = {
-    ...form,
+    ...templateForm.value,
     watermarkConfig: clonedWatermark,
     exportConfig: clonedExport,
   }
@@ -271,7 +278,10 @@ async function handleClearLastSettings() {
   }
 }
 
-function formatDate(value: string) {
+function formatDate(value: string | null) {
+  if (!value) {
+    return null
+  }
   try {
     return new Date(value).toLocaleString()
   } catch (err) {
@@ -308,6 +318,17 @@ onMounted(() => {
       <button type="button" class="refresh" :disabled="loading" @click="loadHealth">
         {{ loading ? '刷新中...' : '重新检测' }}
       </button>
+    </section>
+
+    <section class="workspace-section">
+      <header class="section-header">
+        <div>
+          <h2>图片工作区</h2>
+          <p class="section-subtitle">导入原始图片并预览，为水印叠加和导出做准备。</p>
+        </div>
+        <p class="muted">当前图片：{{ images.length }}</p>
+      </header>
+      <ImageWorkspace @images-updated="handleImagesUpdated" />
     </section>
 
     <section class="templates">
@@ -407,15 +428,11 @@ onMounted(() => {
             <div class="last-settings-header">
               <div>
                 <h4>默认设置</h4>
-                <p class="muted">
-                  将当前表单保存为“上次使用的设置”，下次打开应用时会自动加载。
-                </p>
+                <p class="muted">将当前表单保存为“上次使用的设置”，下次打开应用时会自动加载。</p>
               </div>
               <div class="last-settings-meta">
                 <span v-if="lastSettingsLoading" class="muted">读取中...</span>
-                <span v-else-if="lastSettingsTimestamp" class="muted"
-                  >最近更新：{{ formatDate(lastSettingsTimestamp) }}</span
-                >
+                <span v-else-if="lastSettingsTimestamp" class="muted">最近更新：{{ formatDate(lastSettingsTimestamp) }}</span>
                 <span v-else class="muted">尚未保存默认设置</span>
               </div>
             </div>
@@ -486,7 +503,7 @@ onMounted(() => {
       <ol>
         <li>运行 <code>./mvnw spring-boot:run</code> 启动后端。</li>
         <li>运行 <code>npm run dev</code> 启动前端，访问 <code>http://localhost:5173</code>。</li>
-        <li>保存模板或默认设置，后续将用于批量导出与预览功能。</li>
+        <li>导入图片并保存模板/默认设置，为后续批量导出与水印渲染做准备。</li>
       </ol>
     </section>
   </main>
@@ -568,6 +585,10 @@ onMounted(() => {
 .refresh:not(:disabled):hover {
   box-shadow: 0 8px 18px rgba(37, 99, 235, 0.25);
   transform: translateY(-1px);
+}
+
+.workspace-section {
+  margin-top: 2.5rem;
 }
 
 .templates {
