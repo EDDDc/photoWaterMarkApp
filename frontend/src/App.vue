@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import {
+  deleteLastSettings,
   deleteTemplate,
   fetchFonts,
   fetchHealth,
+  fetchLastSettings,
   fetchTemplates,
+  saveLastSettings,
   saveTemplate,
   type ExportConfig,
   type HealthResponse,
+  type LastSettings,
   type Template,
   type TemplateRequest,
   type TextWatermarkConfig,
@@ -27,6 +31,12 @@ const templatesLoading = ref(false)
 const templateError = ref<string | null>(null)
 
 const selectedTemplateId = ref<string | null>(null)
+
+const lastSettingsTimestamp = ref<string | null>(null)
+const lastSettingsLoading = ref(false)
+const lastSettingsError = ref<string | null>(null)
+const savingLastSettings = ref(false)
+const clearingLastSettings = ref(false)
 
 const defaultTextWatermark: TextWatermarkConfig = {
   content: '示例水印',
@@ -73,7 +83,10 @@ function createDefaultForm(): TemplateForm {
         rotationDeg: 0,
       },
     },
-    exportConfig: { ...initialExportConfig, naming: { ...initialExportConfig.naming } },
+    exportConfig: {
+      ...initialExportConfig,
+      naming: { ...initialExportConfig.naming },
+    },
   }
 }
 
@@ -139,6 +152,25 @@ async function loadTemplates() {
   }
 }
 
+async function loadLastSettings() {
+  lastSettingsLoading.value = true
+  lastSettingsError.value = null
+  try {
+    const result = await fetchLastSettings()
+    if (result) {
+      applyLastSettings(result)
+      lastSettingsTimestamp.value = result.updatedAt
+    } else {
+      lastSettingsTimestamp.value = null
+    }
+  } catch (err) {
+    console.error(err)
+    lastSettingsError.value = err instanceof Error ? err.message : '无法读取最近设置'
+  } finally {
+    lastSettingsLoading.value = false
+  }
+}
+
 function resetForm() {
   selectedTemplateId.value = null
   templateForm.value = createDefaultForm()
@@ -150,6 +182,19 @@ function applyTemplateToForm(template: Template) {
   ensureTextConfig(cloned.watermarkConfig)
   ensureExportConfig(cloned.exportConfig)
   templateForm.value = cloned
+}
+
+function applyLastSettings(settings: LastSettings) {
+  const form = templateForm.value
+  const clonedWatermark = JSON.parse(JSON.stringify(settings.watermarkConfig)) as WatermarkConfig
+  const clonedExport = JSON.parse(JSON.stringify(settings.exportConfig)) as ExportConfig
+  ensureTextConfig(clonedWatermark)
+  ensureExportConfig(clonedExport)
+  templateForm.value = {
+    ...form,
+    watermarkConfig: clonedWatermark,
+    exportConfig: clonedExport,
+  }
 }
 
 async function handleSaveTemplate() {
@@ -192,6 +237,40 @@ async function handleDeleteTemplate(id: string) {
   }
 }
 
+async function handleSaveLastSettings() {
+  savingLastSettings.value = true
+  lastSettingsError.value = null
+  try {
+    const payload = {
+      watermarkConfig: JSON.parse(JSON.stringify(templateForm.value.watermarkConfig)),
+      exportConfig: JSON.parse(JSON.stringify(templateForm.value.exportConfig)),
+    }
+    ensureTextConfig(payload.watermarkConfig)
+    ensureExportConfig(payload.exportConfig)
+    const saved = await saveLastSettings(payload)
+    lastSettingsTimestamp.value = saved.updatedAt
+  } catch (err) {
+    console.error(err)
+    lastSettingsError.value = err instanceof Error ? err.message : '保存默认设置失败'
+  } finally {
+    savingLastSettings.value = false
+  }
+}
+
+async function handleClearLastSettings() {
+  clearingLastSettings.value = true
+  lastSettingsError.value = null
+  try {
+    await deleteLastSettings()
+    lastSettingsTimestamp.value = null
+  } catch (err) {
+    console.error(err)
+    lastSettingsError.value = err instanceof Error ? err.message : '清除默认设置失败'
+  } finally {
+    clearingLastSettings.value = false
+  }
+}
+
 function formatDate(value: string) {
   try {
     return new Date(value).toLocaleString()
@@ -204,6 +283,7 @@ onMounted(() => {
   void loadHealth()
   void loadFonts()
   void loadTemplates()
+  void loadLastSettings()
 })
 </script>
 
@@ -323,6 +403,45 @@ onMounted(() => {
             <button type="button" class="ghost" :disabled="templateSaving" @click="resetForm">重置</button>
           </div>
 
+          <div class="last-settings-panel">
+            <div class="last-settings-header">
+              <div>
+                <h4>默认设置</h4>
+                <p class="muted">
+                  将当前表单保存为“上次使用的设置”，下次打开应用时会自动加载。
+                </p>
+              </div>
+              <div class="last-settings-meta">
+                <span v-if="lastSettingsLoading" class="muted">读取中...</span>
+                <span v-else-if="lastSettingsTimestamp" class="muted"
+                  >最近更新：{{ formatDate(lastSettingsTimestamp) }}</span
+                >
+                <span v-else class="muted">尚未保存默认设置</span>
+              </div>
+            </div>
+
+            <div class="last-settings-actions">
+              <button
+                type="button"
+                class="outline"
+                :disabled="savingLastSettings || templateSaving"
+                @click="handleSaveLastSettings"
+              >
+                {{ savingLastSettings ? '保存中...' : '保存为默认' }}
+              </button>
+              <button
+                type="button"
+                class="ghost"
+                :disabled="clearingLastSettings || !lastSettingsTimestamp"
+                @click="handleClearLastSettings"
+              >
+                {{ clearingLastSettings ? '清除中...' : '清除默认' }}
+              </button>
+            </div>
+
+            <p v-if="lastSettingsError" class="error">{{ lastSettingsError }}</p>
+          </div>
+
           <p v-if="templateError" class="error">{{ templateError }}</p>
         </form>
 
@@ -367,7 +486,7 @@ onMounted(() => {
       <ol>
         <li>运行 <code>./mvnw spring-boot:run</code> 启动后端。</li>
         <li>运行 <code>npm run dev</code> 启动前端，访问 <code>http://localhost:5173</code>。</li>
-        <li>使用上述模板面板保存水印配置，为后续批量导出功能做准备。</li>
+        <li>保存模板或默认设置，后续将用于批量导出与预览功能。</li>
       </ol>
     </section>
   </main>
@@ -640,6 +759,26 @@ button.danger:disabled {
   cursor: not-allowed;
 }
 
+button.outline {
+  background-color: transparent;
+  border: 1px solid #2563eb;
+  color: #2563eb;
+  padding: 0.55rem 1.25rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+button.outline:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.outline:not(:disabled):hover {
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.15);
+  transform: translateY(-1px);
+}
+
 .error {
   margin-top: 0.75rem;
   color: #dc2626;
@@ -696,6 +835,31 @@ button.danger:disabled {
   font-size: 0.95rem;
 }
 
+.last-settings-panel {
+  margin-top: 1.5rem;
+  border: 1px dashed #94a3b8;
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+  background-color: #eef2ff;
+}
+
+.last-settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.last-settings-header h4 {
+  margin: 0 0 0.5rem;
+}
+
+.last-settings-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
 .instructions {
   margin-top: 3rem;
 }
@@ -734,6 +898,11 @@ code {
   .list-actions {
     width: 100%;
     justify-content: flex-end;
+  }
+
+  .last-settings-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

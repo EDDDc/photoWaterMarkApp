@@ -84,6 +84,15 @@ export interface Template extends TemplateRequest {
   updatedAt: string
 }
 
+export interface LastSettingsRequest {
+  watermarkConfig: WatermarkConfig
+  exportConfig: ExportConfig
+}
+
+export interface LastSettings extends LastSettingsRequest {
+  updatedAt: string
+}
+
 const jsonHeaders: HeadersInit = {
   Accept: 'application/json',
 }
@@ -145,5 +154,44 @@ export async function deleteTemplate(id: string): Promise<void> {
   if (!response.ok) {
     const body = await response.text()
     throw new Error(body || `删除模板失败，状态码 ${response.status}`)
+  }
+}
+
+export async function fetchLastSettings(signal?: AbortSignal): Promise<LastSettings | null> {
+  const response = await fetch('/api/settings/last', {
+    method: 'GET',
+    headers: jsonHeaders,
+    signal,
+  })
+
+  if (response.status === 204) {
+    return null
+  }
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `加载最近设置失败，状态码 ${response.status}`)
+  }
+
+  return (await response.json()) as LastSettings
+}
+
+export async function saveLastSettings(payload: LastSettingsRequest): Promise<LastSettings> {
+  const response = await fetch('/api/settings/last', {
+    method: 'POST',
+    headers: jsonPostHeaders,
+    body: JSON.stringify(payload),
+  })
+  return handleJson<LastSettings>(response)
+}
+
+export async function deleteLastSettings(): Promise<void> {
+  const response = await fetch('/api/settings/last', {
+    method: 'DELETE',
+    headers: jsonHeaders,
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || `删除最近设置失败，状态码 ${response.status}`)
   }
 }
