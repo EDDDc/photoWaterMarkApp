@@ -8,6 +8,17 @@ Spring Boot + Vue 3 application for batch applying watermarks to local images on
 - `frontend/` – Vue 3 + TypeScript SPA that consumes the backend.
 - `docs/` – Product requirement document and supplementary design notes.
 
+## Frontend overview
+
+Key Vue modules under `frontend/src`:
+
+- `components/ImageWorkspace.vue`: manages image import (drag & drop or picker), thumbnail list, and Canvas preview zoom modes.
+- `components/TemplateFormPanel.vue`: encapsulates the watermark template form plus the "last used settings" controls.
+- `components/TemplateListPanel.vue`: renders saved templates, allowing load/delete actions while sharing state with the form.
+- `composables/useImageStore.ts`: centralizes imported image state, drag events, and object URL lifecycle management.
+
+`App.vue` wires these components with backend APIs so that image workflow, template persistence, and default settings remain decoupled yet synchronized.
+
 ## Prerequisites
 
 - JDK 17+
@@ -33,12 +44,12 @@ npm install
 npm run dev
 ```
 
-Visit `http://localhost:5173` in a Chromium-based browser. Vite proxies `/api/*` calls to the local backend。首页包含：
+Visit `http://localhost:5173` in a Chromium-based browser. Vite proxies `/api/*` calls to the local backend. The landing page now提供：
 
 - 后端健康检测（`/api/health`）。
-- 模板管理面板，可保存/编辑/删除水印模板并实时读取后端数据。
-- 字体枚举结果，提醒哪些字体已经在系统中安装并可用于水印。
-- 图片导入与预览工作区，支持拖拽或选择文件、图片列表、Canvas 预览及缩放模式切换。
+- 水印模板管理（保存/编辑/删除并实时同步）。
+- 字体枚举结果，提示系统可用字体。
+- 图片工作区：拖拽/选择图片、缩略图列表、Canvas 预览以及缩放模式切换。
 
 ### 3. Run automated checks
 
@@ -81,7 +92,7 @@ The frontend build step compiles TypeScript (via `vue-tsc`) and produces product
 %APPDATA%/PhotoWatermark/templates/{templateId}.json
 ```
 
-最近一次设置保存在 `settings/last.json`。如需指定自定义目录，可在 `backend/src/main/resources/application.properties` 中设置：
+最近一次设置保存在 `settings/last.json`。如需自定义目录，可在 `backend/src/main/resources/application.properties` 中设置：
 
 ```
 app.storage.base-dir=E:/PhotoWatermarkData
@@ -90,5 +101,5 @@ app.storage.base-dir=E:/PhotoWatermarkData
 ## Next steps
 
 - 扩展后端：实现水印渲染流程、图片批量导出、进度/取消 API。
-- 扩展前端：接入图片列表与预览画布的水印叠加、拖拽定位和导出流程。
+- 扩展前端：在预览画布中叠加文本/图片水印、支持拖拽定位与导出流程。
 - 打包与发布：使用 `jpackage` 生成自带运行时的 Windows 安装包/绿色版，并在 GitHub Release 提供下载。
