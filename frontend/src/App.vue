@@ -131,20 +131,81 @@ function createDefaultForm(): TemplateForm {
   }
 }
 
-function ensureTextConfig(config: WatermarkConfig) {
-  if (config.type === 'text') {
+function ensureWatermarkConfig(config: WatermarkConfig) {
+  if (!config.type) {
+    config.type = 'text'
+  }
+
+  if (config.type === 'image') {
+    if (!config.image) {
+      config.image = {
+        name: '',
+        mime: 'image/png',
+        data: '',
+        scale: 0.3,
+        opacity: 80,
+        cacheKey: `${Date.now()}`,
+      }
+    } else {
+      config.image.name = config.image.name ?? ''
+      config.image.mime = config.image.mime ?? 'image/png'
+      config.image.cacheKey = config.image.cacheKey ?? `${Date.now()}`
+      config.image.opacity = clampOpacity(config.image.opacity)
+      config.image.scale = clampImageScale(config.image.scale)
+    }
+  } else {
+    config.type = 'text'
     if (!config.text) {
       config.text = { ...defaultTextWatermark }
     }
-    if (!config.layout) {
-      config.layout = {
-        preset: 'bottom-right',
-        x: 0.9,
-        y: 0.9,
-        rotationDeg: 0,
-      }
+    const text = config.text
+    text.content = text.content ?? defaultTextWatermark.content
+    text.fontFamily = text.fontFamily ?? defaultTextWatermark.fontFamily
+    text.fontSize = text.fontSize ?? defaultTextWatermark.fontSize
+    text.bold = text.bold ?? false
+    text.italic = text.italic ?? false
+    text.color = text.color ?? defaultTextWatermark.color
+    text.opacity = text.opacity ?? defaultTextWatermark.opacity
+    if (text.stroke && (!text.stroke.width || text.stroke.width <= 0)) {
+      text.stroke.width = 1
+    }
+    if (text.shadow === undefined && defaultTextWatermark.shadow) {
+      text.shadow = JSON.parse(JSON.stringify(defaultTextWatermark.shadow))
     }
   }
+
+  ensureLayoutConfig(config)
+}
+
+function ensureLayoutConfig(config: WatermarkConfig) {
+  if (!config.layout) {
+    config.layout = {
+      preset: 'bottom-right',
+      x: 0.9,
+      y: 0.9,
+      rotationDeg: 0,
+    }
+  }
+  config.layout.preset = config.layout.preset ?? 'custom'
+  config.layout.x = clamp01(config.layout.x ?? 0.9)
+  config.layout.y = clamp01(config.layout.y ?? 0.9)
+  config.layout.rotationDeg = Number.isFinite(config.layout.rotationDeg)
+    ? (config.layout.rotationDeg as number)
+    : 0
+}
+
+function clamp01(value: number) {
+  return Math.min(1, Math.max(0, value))
+}
+
+function clampOpacity(value?: number | null) {
+  const numeric = typeof value === 'number' && Number.isFinite(value) ? value : 80
+  return Math.min(100, Math.max(0, numeric))
+}
+
+function clampImageScale(value?: number | null) {
+  const numeric = typeof value === 'number' && Number.isFinite(value) ? value : 0.3
+  return Math.min(1, Math.max(0.05, numeric))
 }
 
 function ensureExportConfig(config: ExportConfig) {
@@ -159,6 +220,23 @@ function ensureExportConfig(config: ExportConfig) {
 function handleImagesUpdated(list: ImportedImageMeta[]) {
   images.value = list
 }
+
+function handleWorkspaceLayoutChange(position: { x: number; y: number }) {
+  ensureWatermarkConfig(templateForm.value.watermarkConfig)
+  if (!templateForm.value.watermarkConfig.layout) {
+    templateForm.value.watermarkConfig.layout = {
+      preset: 'custom',
+      x: clamp01(position.x),
+      y: clamp01(position.y),
+      rotationDeg: 0,
+    }
+  } else {
+    templateForm.value.watermarkConfig.layout.x = clamp01(position.x)
+    templateForm.value.watermarkConfig.layout.y = clamp01(position.y)
+  }
+  templateForm.value.watermarkConfig.layout.preset = 'custom'
+}
+
 
 async function loadHealth() {
   loading.value = true
@@ -224,7 +302,7 @@ function resetForm() {
 function applyTemplateToForm(template: Template) {
   selectedTemplateId.value = template.id
   const cloned = JSON.parse(JSON.stringify(template)) as TemplateForm
-  ensureTextConfig(cloned.watermarkConfig)
+  ensureWatermarkConfig(cloned.watermarkConfig)
   ensureExportConfig(cloned.exportConfig)
   templateForm.value = cloned
 }
@@ -232,7 +310,7 @@ function applyTemplateToForm(template: Template) {
 function applyLastSettings(settings: LastSettings) {
   const clonedWatermark = JSON.parse(JSON.stringify(settings.watermarkConfig)) as WatermarkConfig
   const clonedExport = JSON.parse(JSON.stringify(settings.exportConfig)) as ExportConfig
-  ensureTextConfig(clonedWatermark)
+  ensureWatermarkConfig(clonedWatermark)
   ensureExportConfig(clonedExport)
   templateForm.value = {
     ...templateForm.value,
@@ -250,7 +328,7 @@ async function handleSaveTemplate() {
       watermarkConfig: JSON.parse(JSON.stringify(templateForm.value.watermarkConfig)),
       exportConfig: JSON.parse(JSON.stringify(templateForm.value.exportConfig)),
     }
-    ensureTextConfig(payload.watermarkConfig)
+    ensureWatermarkConfig(payload.watermarkConfig)
     ensureExportConfig(payload.exportConfig)
 
     const saved = await saveTemplate(payload)
@@ -289,7 +367,7 @@ async function handleSaveLastSettings() {
       watermarkConfig: JSON.parse(JSON.stringify(templateForm.value.watermarkConfig)),
       exportConfig: JSON.parse(JSON.stringify(templateForm.value.exportConfig)),
     }
-    ensureTextConfig(payload.watermarkConfig)
+    ensureWatermarkConfig(payload.watermarkConfig)
     ensureExportConfig(payload.exportConfig)
     const saved = await saveLastSettings(payload)
     lastSettingsTimestamp.value = saved.updatedAt
@@ -330,7 +408,7 @@ async function handleExport() {
       exportConfig: JSON.parse(JSON.stringify(templateForm.value.exportConfig)),
     }
 
-    ensureTextConfig(payload.watermarkConfig)
+    ensureWatermarkConfig(payload.watermarkConfig)
     ensureExportConfig(payload.exportConfig)
 
     await submitExport({
@@ -434,7 +512,7 @@ onBeforeUnmount(() => {
         </div>
         <p class="muted">当前图片：{{ images.length }}</p>
       </header>
-      <ImageWorkspace @images-updated="handleImagesUpdated" />
+      <ImageWorkspace :watermark-config="templateForm.watermarkConfig" @images-updated="handleImagesUpdated" @layout-change="handleWorkspaceLayoutChange" />
     </section>
 
     <section class="templates">
@@ -893,4 +971,3 @@ code {
   }
 }
 </style>
-

@@ -1,10 +1,16 @@
 ﻿<script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useImageStore } from '../composables/useImageStore'
+import type { ImageWatermarkConfig, WatermarkConfig } from '../services/api'
 import type { ImportedImageMeta } from '../types/images'
+
+const props = defineProps<{
+  watermarkConfig: WatermarkConfig | null
+}>()
 
 const emit = defineEmits<{
   (e: 'images-updated', images: ImportedImageMeta[]): void
+  (e: 'layout-change', payload: { x: number; y: number }): void
 }>()
 
 const {
@@ -26,6 +32,67 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const canvasContainer = ref<HTMLDivElement | null>(null)
 const scaleMode = ref<'contain' | 'cover' | 'actual'>('contain')
+const currentImageElement = ref<HTMLImageElement | null>(null)
+const renderOptions = ref<CanvasRenderOptions | null>(null)
+const isDraggingHandle = ref(false)
+let pointerId: number | null = null
+const showLayoutHandle = computed(() => {
+  const options = renderOptions.value
+  const config = props.watermarkConfig
+  if (!options || !config || !config.layout) {
+    return false
+  }
+  if (config.type === 'image') {
+    return Boolean(config.image?.data)
+  }
+  if (config.type === 'text') {
+    return Boolean(config.text?.content?.trim())
+  }
+  return false
+})
+
+const layoutHandleStyle = computed(() => {
+  const options = renderOptions.value
+  const layout = props.watermarkConfig?.layout
+  if (!options || !layout) {
+    return { display: 'none' }
+  }
+  const [anchorX, anchorY] = resolveAnchor(layout, options.drawWidth, options.drawHeight)
+  const left = options.offsetX + anchorX
+  const top = options.offsetY + anchorY
+  return {
+    display: 'block',
+    transform: 'translate(-50%, -50%)',
+    left: `${left}px`,
+    top: `${top}px`,
+  }
+})
+
+const defaultFontFamily = 'Microsoft YaHei'
+const PRESET_POSITIONS: Record<string, [number, number]> = {
+  'top-left': [0.1, 0.15],
+  'top-center': [0.5, 0.15],
+  'top-right': [0.9, 0.15],
+  'center-left': [0.15, 0.5],
+  center: [0.5, 0.5],
+  'center-right': [0.85, 0.5],
+  'bottom-left': [0.15, 0.85],
+  'bottom-center': [0.5, 0.9],
+  'bottom-right': [0.85, 0.9],
+}
+
+const watermarkImageCache = new Map<string, HTMLImageElement>()
+
+interface CanvasRenderOptions {
+  offsetX: number
+  offsetY: number
+  drawWidth: number
+  drawHeight: number
+  scale: number
+}
+
+let resizeObserver: ResizeObserver | null = null
+
 
 const activeImageInfo = computed(() => {
   const image = activeImage.value
@@ -76,12 +143,85 @@ function handleRemoveImage(id: string) {
   emit('images-updated', items.value)
 }
 
-function handle清空All() {
+function handleClearAll() {
   clear()
-  emit('images-updated', items.value)
+  currentImageElement.value = null
+  renderOptions.value = null
+  clearCanvas()
+  stopLayoutDrag()
+  emit("images-updated", items.value)
+}
+
+function clearCanvas() {
+  const canvas = canvasRef.value
+  const ctx = canvas?.getContext('2d')
+  if (canvas && ctx) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+  }
+}
+
+function startLayoutDrag(event: PointerEvent) {
+  if (!renderOptions.value || !canvasContainer.value) {
+    return
+  }
+  event.preventDefault()
+  if (pointerId !== null) {
+    stopLayoutDrag()
+  }
+  pointerId = event.pointerId
+  isDraggingHandle.value = true
+  window.addEventListener('pointermove', updateLayoutFromPointer)
+  window.addEventListener('pointerup', stopLayoutDrag)
+  updateLayoutFromPointer(event)
+}
+
+function updateLayoutFromPointer(event: PointerEvent) {
+  if (!renderOptions.value || !canvasContainer.value) {
+    return
+  }
+  if (pointerId !== null && event.pointerId !== pointerId) {
+    return
+  }
+  const container = canvasContainer.value
+  const rect = container.getBoundingClientRect()
+  const options = renderOptions.value
+  const relativeX = (event.clientX - rect.left - options.offsetX) / options.drawWidth
+  const relativeY = (event.clientY - rect.top - options.offsetY) / options.drawHeight
+  const clampedX = Math.min(1, Math.max(0, relativeX))
+  const clampedY = Math.min(1, Math.max(0, relativeY))
+  emit('layout-change', { x: clampedX, y: clampedY })
+}
+
+function stopLayoutDrag(event?: PointerEvent) {
+  if (pointerId !== null && event && event.pointerId !== pointerId) {
+    return
+  }
+  window.removeEventListener('pointermove', updateLayoutFromPointer)
+  window.removeEventListener('pointerup', stopLayoutDrag)
+  pointerId = null
+  isDraggingHandle.value = false
 }
 
 function drawImageToCanvas(image: ImportedImageMeta) {
+  renderOptions.value = null
+  const container = canvasContainer.value
+  if (!container) {
+    return
+  }
+  const imgElement = new Image()
+  imgElement.onload = () => {
+    currentImageElement.value = imgElement
+    renderCanvas(imgElement)
+  }
+  imgElement.onerror = () => {
+    currentImageElement.value = null
+    renderOptions.value = null
+    clearCanvas()
+  }
+  imgElement.src = image.objectUrl
+}
+
+function renderCanvas(imageEl: HTMLImageElement) {
   const canvas = canvasRef.value
   const container = canvasContainer.value
   if (!canvas || !container) {
@@ -98,51 +238,257 @@ function drawImageToCanvas(image: ImportedImageMeta) {
 
   canvas.width = width
   canvas.height = height
+  ctx.clearRect(0, 0, width, height)
 
-  const imgElement = new Image()
-  imgElement.onload = () => {
-    ctx.clearRect(0, 0, width, height)
+  let drawWidth = imageEl.width
+  let drawHeight = imageEl.height
 
-    let drawWidth = imgElement.width
-    let drawHeight = imgElement.height
-
-    if (scaleMode.value === 'contain') {
-      const scale = Math.min(width / imgElement.width, height / imgElement.height, 1)
-      drawWidth = imgElement.width * scale
-      drawHeight = imgElement.height * scale
-    } else if (scaleMode.value === 'cover') {
-      const scale = Math.max(width / imgElement.width, height / imgElement.height)
-      drawWidth = imgElement.width * scale
-      drawHeight = imgElement.height * scale
-    }
-
-    const x = (width - drawWidth) / 2
-    const y = (height - drawHeight) / 2
-    ctx.drawImage(imgElement, x, y, drawWidth, drawHeight)
+  if (scaleMode.value === 'contain') {
+    const scale = Math.min(width / imageEl.width, height / imageEl.height, 1)
+    drawWidth = imageEl.width * scale
+    drawHeight = imageEl.height * scale
+  } else if (scaleMode.value === 'cover') {
+    const scale = Math.max(width / imageEl.width, height / imageEl.height)
+    drawWidth = imageEl.width * scale
+    drawHeight = imageEl.height * scale
   }
-  imgElement.onerror = () => {
-    const ctx = canvas.getContext('2d')
-    ctx?.clearRect(0, 0, width, height)
+
+  const offsetX = (width - drawWidth) / 2
+  const offsetY = (height - drawHeight) / 2
+
+  ctx.drawImage(imageEl, offsetX, offsetY, drawWidth, drawHeight)
+  renderOptions.value = {
+    offsetX,
+    offsetY,
+    drawWidth,
+    drawHeight,
+    scale: drawWidth / imageEl.width,
   }
-  imgElement.src = image.objectUrl
+
+  renderWatermark(ctx, {
+    offsetX,
+    offsetY,
+    drawWidth,
+    drawHeight,
+    scale: drawWidth / imageEl.width,
+  })
 }
 
-watch([activeImage, scaleMode], ([image]) => {
-  if (!image) {
-    const canvas = canvasRef.value
-    if (canvas) {
-      const ctx = canvas.getContext('2d')
-      ctx?.clearRect(0, 0, canvas.width, canvas.height)
+function renderWatermark(ctx: CanvasRenderingContext2D, options: CanvasRenderOptions) {
+  const config = props.watermarkConfig
+  if (!config) {
+    return
+  }
+
+  if (config.type === 'image') {
+    renderImageWatermark(ctx, options, config)
+    return
+  }
+
+  if (config.type !== 'text') {
+    return
+  }
+
+  const text = config.text
+  if (!text || !text.content?.trim()) {
+    return
+  }
+
+  const layout = config.layout ?? {}
+  const [anchorX, anchorY] = resolveAnchor(layout, options.drawWidth, options.drawHeight)
+  const anchorCanvasX = options.offsetX + anchorX
+  const anchorCanvasY = options.offsetY + anchorY
+
+  const fontParts: string[] = []
+  if (text.bold) {
+    fontParts.push('bold')
+  }
+  if (text.italic) {
+    fontParts.push('italic')
+  }
+  fontParts.push(`${text.fontSize ?? 32}px`)
+  fontParts.push(`"${text.fontFamily ?? defaultFontFamily}"`)
+
+  ctx.save()
+  ctx.font = fontParts.join(' ')
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+
+  const rotateRad = layout.rotationDeg ? (layout.rotationDeg * Math.PI) / 180 : 0
+  ctx.translate(anchorCanvasX, anchorCanvasY)
+  if (rotateRad) {
+    ctx.rotate(rotateRad)
+  }
+
+  const opacity = Math.min(1, Math.max(0, (text.opacity ?? 80) / 100))
+  ctx.globalAlpha = opacity
+
+  if (text.shadow) {
+    ctx.shadowColor = text.shadow.color ?? 'rgba(0,0,0,0.35)'
+    ctx.shadowOffsetX = text.shadow.offsetX ?? 2
+    ctx.shadowOffsetY = text.shadow.offsetY ?? 2
+    ctx.shadowBlur = text.shadow.blur ?? 4
+  } else {
+    ctx.shadowColor = 'transparent'
+    ctx.shadowBlur = 0
+  }
+
+  const content = text.content
+  if (text.stroke?.width && text.stroke.width > 0) {
+    ctx.lineWidth = text.stroke.width
+    ctx.strokeStyle = text.stroke.color ?? 'rgba(0,0,0,0.8)'
+    ctx.strokeText(content, 0, 0)
+  }
+
+  ctx.fillStyle = text.color ?? '#FFFFFF'
+  ctx.fillText(content, 0, 0)
+  ctx.restore()
+}
+
+function renderImageWatermark(
+  ctx: CanvasRenderingContext2D,
+  options: CanvasRenderOptions,
+  config: WatermarkConfig,
+) {
+  const imageConfig = config.image
+  if (!imageConfig || !imageConfig.data) {
+    return
+  }
+
+  const img = getWatermarkImage(imageConfig)
+  if (!img) {
+    return
+  }
+
+  const layout = config.layout ?? {}
+  const [anchorX, anchorY] = resolveAnchor(layout, options.drawWidth, options.drawHeight)
+  const anchorCanvasX = options.offsetX + anchorX
+  const anchorCanvasY = options.offsetY + anchorY
+
+  const scale = clampImageScale(imageConfig.scale)
+  const targetWidth = options.drawWidth * scale
+  if (targetWidth <= 0) {
+    return
+  }
+  const ratio = targetWidth / img.width
+  const targetHeight = img.height * ratio
+  const drawX = anchorCanvasX - targetWidth / 2
+  const drawY = anchorCanvasY - targetHeight / 2
+
+  ctx.save()
+  ctx.globalAlpha = Math.min(1, Math.max(0, (imageConfig.opacity ?? 80) / 100))
+  ctx.drawImage(img, drawX, drawY, targetWidth, targetHeight)
+  ctx.restore()
+}
+
+function getWatermarkImage(imageConfig: ImageWatermarkConfig): HTMLImageElement | null {
+  if (!imageConfig.data) {
+    return null
+  }
+  const key = imageConfig.cacheKey ?? imageConfig.data
+  const src = imageConfig.data.startsWith('data:')
+    ? imageConfig.data
+    : `data:${imageConfig.mime ?? 'image/png'};base64,${imageConfig.data}`
+  let cached = watermarkImageCache.get(key)
+  if (!cached) {
+    cached = new Image()
+    cached.onload = () => {
+      if (currentImageElement.value) {
+        renderCanvas(currentImageElement.value)
+      }
     }
+    cached.onerror = () => {
+      watermarkImageCache.delete(key)
+    }
+    cached.src = src
+    watermarkImageCache.set(key, cached)
+  } else if (cached.src !== src) {
+    cached.src = src
+  }
+  if (!cached.complete || cached.naturalWidth === 0) {
+    return null
+  }
+  return cached
+}
+
+function clampImageScale(value?: number | null) {
+  const numeric = typeof value === 'number' && Number.isFinite(value) ? value : 0.3
+  return Math.min(1, Math.max(0.05, numeric))
+}
+
+function resolveAnchor(
+  layout: WatermarkConfig['layout'],
+  width: number,
+  height: number,
+): [number, number] {
+  let relativeX = 0.5
+  let relativeY = 0.85
+
+  if (layout?.preset) {
+    const preset = PRESET_POSITIONS[layout.preset]
+    if (preset) {
+      const [presetX, presetY] = preset
+      relativeX = presetX
+      relativeY = presetY
+    }
+  }
+  if (typeof layout?.x === 'number') {
+    relativeX = clamp(layout.x, 0, 1)
+  }
+  if (typeof layout?.y === 'number') {
+    relativeY = clamp(layout.y, 0, 1)
+  }
+
+  return [relativeX * width, relativeY * height]
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+watch(activeImage, (image) => {
+  if (!image) {
+    currentImageElement.value = null
+    clearCanvas()
     return
   }
   drawImageToCanvas(image)
 })
 
+watch(scaleMode, () => {
+  if (currentImageElement.value) {
+    renderCanvas(currentImageElement.value)
+  }
+})
+
+watch(
+  () => props.watermarkConfig,
+  () => {
+    if (currentImageElement.value) {
+      renderCanvas(currentImageElement.value)
+    }
+  },
+  { deep: true },
+)
+
 onMounted(() => {
   emit('images-updated', items.value)
+  if (canvasContainer.value && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => {
+      if (currentImageElement.value) {
+        renderCanvas(currentImageElement.value)
+      }
+    })
+    resizeObserver.observe(canvasContainer.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  stopLayoutDrag()
+  resizeObserver?.disconnect()
 })
 </script>
+
 
 <template>
   <section class="workspace">
@@ -172,7 +518,7 @@ onMounted(() => {
       <aside class="sidebar">
         <header class="sidebar-header">
           <h3>已导入图片 ({{ items.length }})</h3>
-          <button type="button" class="ghost" @click="handle清空All">清空</button>
+          <button type="button" class="ghost" @click="handleClearAll">清空</button>
         </header>
         <ul class="image-list">
           <li
@@ -202,7 +548,7 @@ onMounted(() => {
           <div>
             <h3>预览</h3>
             <p v-if="activeImageInfo" class="muted">
-              {{ activeImageInfo.name }} 路 {{ activeImageInfo.dimension }} 路 {{ activeImageInfo.size }}
+              {{ activeImageInfo.name }} · {{ activeImageInfo.dimension }} · {{ activeImageInfo.size }}
             </p>
           </div>
           <div class="scale-controls">
@@ -218,6 +564,15 @@ onMounted(() => {
         </header>
         <div ref="canvasContainer" class="canvas-wrapper">
           <canvas ref="canvasRef" class="preview-canvas">当前浏览器不支持 Canvas。</canvas>
+          <button
+            v-if="showLayoutHandle"
+            type="button"
+            class="layout-handle"
+            :class="{ dragging: isDraggingHandle }"
+            :style="layoutHandleStyle"
+            @pointerdown="startLayoutDrag"
+            aria-label="拖拽调整水印位置"
+          ></button>
           <p v-if="!activeImage" class="muted empty">请选择左侧图片以预览</p>
         </div>
       </div>
@@ -448,6 +803,37 @@ button.icon:hover {
   align-items: center;
   justify-content: center;
   background-color: rgba(15, 23, 42, 0.75);
+}
+
+
+.layout-handle {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  background: rgba(37, 99, 235, 0.85);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+  transition: box-shadow 0.2s ease, background-color 0.2s ease;
+  pointer-events: auto;
+}
+
+.layout-handle.dragging {
+  cursor: grabbing;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.5);
+}
+
+.layout-handle::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #ffffff;
 }
 
 @media (max-width: 960px) {

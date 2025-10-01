@@ -13,6 +13,7 @@ import java.awt.font.GlyphVector;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -21,6 +22,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -41,6 +43,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.photowatermarkapp.config.StorageProperties;
 import com.photowatermarkapp.model.ExportConfig;
+import com.photowatermarkapp.model.ImageWatermarkConfig;
 import com.photowatermarkapp.model.LayoutConfig;
 import com.photowatermarkapp.model.NamingRule;
 import com.photowatermarkapp.model.ResizeConfig;
@@ -73,6 +76,10 @@ public class ExportService {
 
     private final StorageProperties storageProperties;
     private final ExecutorService executor;
+
+    static {
+        ImageIO.scanForPlugins();
+    }
     private final Map<String, ExportJob> jobs = new ConcurrentHashMap<>();
 
     public ExportService(StorageProperties storageProperties) {
@@ -189,11 +196,12 @@ public class ExportService {
     }
 
     private Path resolveOutputDirectory(String configuredPath) {
+        String timestamp = Instant.now().toString().replace(':', '-');
         if (!StringUtils.hasText(configuredPath)) {
-            String timestamp = Instant.now().toString().replace(':', '-');
             return storageProperties.resolve("exports", timestamp);
         }
-        return Path.of(configuredPath).toAbsolutePath().normalize();
+        Path base = Path.of(configuredPath).toAbsolutePath().normalize();
+        return base.resolve("photo-watermark-" + timestamp);
     }
 
     private void ensureDirectory(Path directory) {
@@ -261,10 +269,20 @@ public class ExportService {
         return output;
     }
 
-    private void applyWatermark(BufferedImage image, WatermarkConfig config) {
-        if (config == null || !"text".equalsIgnoreCase(config.getType())) {
+private void applyWatermark(BufferedImage image, WatermarkConfig config) {
+        if (config == null || !StringUtils.hasText(config.getType())) {
             return;
         }
+        if ("image".equalsIgnoreCase(config.getType())) {
+            applyImageWatermark(image, config);
+            return;
+        }
+        if ("text".equalsIgnoreCase(config.getType())) {
+            applyTextWatermark(image, config);
+        }
+    }
+
+    private void applyTextWatermark(BufferedImage image, WatermarkConfig config) {
         TextWatermarkConfig textConfig = config.getText();
         if (textConfig == null || !StringUtils.hasText(textConfig.getContent())) {
             return;
@@ -292,7 +310,6 @@ public class ExportService {
 
             FontMetrics metrics = g2d.getFontMetrics();
             int textWidth = metrics.stringWidth(textConfig.getContent());
-            int textHeight = metrics.getAscent() - metrics.getDescent();
 
             double[] anchor = resolveAnchor(config.getLayout(), image.getWidth(), image.getHeight());
             double anchorX = anchor[0];
@@ -342,6 +359,66 @@ public class ExportService {
         }
     }
 
+    private void applyImageWatermark(BufferedImage image, WatermarkConfig config) {
+        ImageWatermarkConfig imageConfig = config.getImage();
+        if (imageConfig == null || !StringUtils.hasText(imageConfig.getData())) {
+            return;
+        }
+
+        String data = imageConfig.getData();
+        String base64 = data;
+        int commaIndex = data.indexOf(',');
+        if (commaIndex >= 0) {
+            base64 = data.substring(commaIndex + 1);
+        }
+
+        byte[] bytes;
+        try {
+            bytes = Base64.getDecoder().decode(base64);
+        } catch (IllegalArgumentException ex) {
+            return;
+        }
+
+        BufferedImage watermark;
+        try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes)) {
+            watermark = ImageIO.read(bais);
+        } catch (IOException ex) {
+            return;
+        }
+
+        if (watermark == null) {
+            return;
+        }
+
+        double scale = Optional.ofNullable(imageConfig.getScale()).orElse(0.3);
+        scale = Math.max(0.05, Math.min(1.0, scale));
+        int targetWidth = (int) Math.round(image.getWidth() * scale);
+        if (targetWidth <= 0) {
+            return;
+        }
+        double ratio = targetWidth / (double) watermark.getWidth();
+        int targetHeight = (int) Math.round(watermark.getHeight() * ratio);
+        if (targetHeight <= 0) {
+            return;
+        }
+
+        double[] anchor = resolveAnchor(config.getLayout(), image.getWidth(), image.getHeight());
+        double anchorX = anchor[0];
+        double anchorY = anchor[1];
+        int drawX = (int) Math.round(anchorX - targetWidth / 2.0);
+        int drawY = (int) Math.round(anchorY - targetHeight / 2.0);
+
+        Graphics2D g2d = image.createGraphics();
+        try {
+            g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            float opacity = Optional.ofNullable(imageConfig.getOpacity()).map(v -> v.floatValue() / 100f).orElse(0.8f);
+            opacity = Math.max(0f, Math.min(1f, opacity));
+            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, opacity));
+            g2d.drawImage(watermark, drawX, drawY, targetWidth, targetHeight, null);
+        } finally {
+            g2d.dispose();
+        }
+    }
     private double[] resolveAnchor(LayoutConfig layout, int width, int height) {
         double relativeX = 0.5;
         double relativeY = 0.85;
