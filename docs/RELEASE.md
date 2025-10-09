@@ -45,6 +45,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 
    若返回 JSON（包含时间戳、状态），说明后端已成功启动；
 4. 在浏览器访问 `http://localhost:8080`，确认前端页面可正常加载与操作；
 5. 如需退出，关闭应用窗口或在任务栏图标上选择退出，Spring Boot 进程会自动终止。
+6. 若需禁用自动打开浏览器，可在安装目录的 `PhotoWatermarkApp.cfg` 中添加 `-Dapp.desktop.auto-open=false` 后重启。
 
 ## 4. 发布到 GitHub Release
 
