@@ -21,3 +21,6 @@ tar-photos/exports/
 tar-photos/templates/
 
 desktop/node_modules/
+backend/src/main/resources/static/
+app/
+tools/

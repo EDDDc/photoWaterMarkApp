@@ -6,6 +6,7 @@ Windows 平台的本地图片批量加水印工具，基于 Spring Boot + Vue 3 
 
 - `backend/`：Spring Boot 3 REST API，负责模板管理、默认设置、导出任务及水印渲染。
 - `frontend/`：Vue 3 + TypeScript 单页应用，提供图片预览、模板编辑、批量导出面板等界面能力。
+- `desktop/`：Electron 桌面壳，封装后端进程并提供桌面窗口入口。
 - `docs/`：产品需求文档与补充设计说明。
 
 ## 前端模块概览
@@ -67,6 +68,21 @@ npm run build
 若未设置输出目录，导出结果默认写入仓库根目录的 `tar-photos/exports/<timestamp>`。可在 `backend/src/main/resources/application.properties` 调整 `app.storage.base-dir`。
 
 **目录安全**：无论是否自定义目录，系统都会在目标目录下生成带时间戳的子目录，以避免覆盖原始图片。
+
+### 5. 启动桌面版（Electron）
+
+```bash
+cd backend
+./mvnw clean package -DskipTests
+
+cd ../desktop
+npm install
+npm run start
+```
+
+首次运行需要安装依赖并构建后端 Jar。桌面壳会在启动时检测端口占用、自动拉起 Spring Boot 服务，并在应用退出时尝试关闭后端进程。
+
+如果希望修改端口，可设置 `BACKEND_PORT` 环境变量后再执行 `npm run start`。
 
 ## 支持的格式
 
