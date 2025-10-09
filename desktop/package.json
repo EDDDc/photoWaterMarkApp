@@ -1,0 +1,19 @@
+﻿{
+    "name":  "photo-watermark-desktop",
+    "version":  "1.0.0",
+    "description":  "Desktop shell for Photo Watermark App using Electron",
+    "main":  "main.js",
+    "scripts":  {
+                    "start":  "node scripts/start.js",
+                    "dev":  "node scripts/start.js"
+                },
+    "author":  "",
+    "license":  "MIT",
+    "dependencies":  {
+                         "tree-kill":  "^1.2.2",
+                         "wait-on":  "^7.2.0"
+                     },
+    "devDependencies":  {
+                            "electron":  "^30.0.0"
+                        }
+}
