@@ -4,6 +4,7 @@ import java.awt.Desktop;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
 import org.slf4j.Logger;
@@ -33,17 +34,8 @@ public class DesktopLauncher implements ApplicationListener<ApplicationReadyEven
         if (!autoOpen) {
             return;
         }
-        if (!Desktop.isDesktopSupported()) {
-            log.info("Desktop operations not supported on this platform; skip auto opening browser.");
-            return;
-        }
-        String port = environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
-        String host = environment.getProperty("app.desktop.host", "127.0.0.1");
-        URI target;
-        try {
-            target = new URI("http://" + host + ":" + port);
-        } catch (URISyntaxException e) {
-            log.warn("Unable to build URI for auto open", e);
+        URI target = buildTargetUri();
+        if (target == null) {
             return;
         }
         CompletableFuture.runAsync(() -> {
@@ -53,12 +45,60 @@ public class DesktopLauncher implements ApplicationListener<ApplicationReadyEven
                 Thread.currentThread().interrupt();
                 return;
             }
-            try {
-                Desktop.getDesktop().browse(target);
-                log.info("Opened default browser at {}", target);
-            } catch (IOException e) {
-                log.warn("Failed to open default browser", e);
+            if (tryDesktopOpen(target)) {
+                return;
             }
+            tryFallbackOpen(target);
         });
+    }
+
+    private URI buildTargetUri() {
+        String port = environment.getProperty("local.server.port", environment.getProperty("server.port", "8080"));
+        String host = environment.getProperty("app.desktop.host", "127.0.0.1");
+        try {
+            return new URI("http://" + host + ":" + port);
+        } catch (URISyntaxException e) {
+            log.warn("Unable to build URI for auto open", e);
+            return null;
+        }
+    }
+
+    private boolean tryDesktopOpen(URI target) {
+        if (!Desktop.isDesktopSupported()) {
+            log.info("Desktop API not supported; attempting command fallback.");
+            return false;
+        }
+        Desktop desktop = Desktop.getDesktop();
+        if (!desktop.isSupported(Desktop.Action.BROWSE)) {
+            log.info("Desktop browse action not supported; attempting command fallback.");
+            return false;
+        }
+        try {
+            desktop.browse(target);
+            log.info("Opened default browser at {} via Desktop API", target);
+            return true;
+        } catch (IOException e) {
+            log.warn("Failed to open browser via Desktop API; attempting command fallback.", e);
+            return false;
+        }
+    }
+
+    private void tryFallbackOpen(URI target) {
+        String os = System.getProperty("os.name", "unknown").toLowerCase(Locale.ROOT);
+        String url = target.toString();
+        ProcessBuilder builder;
+        if (os.contains("win")) {
+            builder = new ProcessBuilder("cmd", "/c", "start", "", url);
+        } else if (os.contains("mac")) {
+            builder = new ProcessBuilder("open", url);
+        } else {
+            builder = new ProcessBuilder("xdg-open", url);
+        }
+        try {
+            builder.start();
+            log.info("Opened browser at {} via command fallback", target);
+        } catch (IOException e) {
+            log.warn("Failed to open browser via command fallback", e);
+        }
     }
 }
