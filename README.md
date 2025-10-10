@@ -1,33 +1,32 @@
 # Photo Watermark App
 
-Photo Watermark App is a Windows desktop utility that batches watermark operations on images.  
-The backend is built with Spring Boot, the SPA frontend uses Vue 3, and the desktop shell packages everything with Electron and `jpackage`.
+Photo Watermark App 是一款面向 Windows 平台的本地图片批量加水印工具。后端基于 Spring Boot，前端使用 Vue 3，桌面客户端通过 Electron 与 `jpackage` 打包。
 
-## Requirements
+## 环境要求
 
-- JDK 17 or later (with `jpackage`)
-- Node.js 20 or later
-- npm (bundled with Node.js)
+- JDK 17 及以上（需自带 `jpackage`）
+- Node.js 20 及以上
+- npm（随 Node.js 安装）
 
-## Quick Start
+## 快速开始
 
-1. Clone the repository and start the backend:
+1. 克隆仓库并启动后端
    ```bash
    git clone <repo-url>
    cd photoWatermarkApp/backend
    ./mvnw spring-boot:run
    ```
-   The API listens on `http://localhost:8080`.
+   后端默认监听 `http://localhost:8080`。
 
-2. In a new terminal, run the frontend:
+2. 启动前端（新终端窗口）
    ```bash
    cd ../frontend
    npm install
    npm run dev
    ```
-   Browse to `http://localhost:5173`. Vite proxies `/api/*` requests to the backend.
+   访问 `http://localhost:5173`，Vite 会将 `/api/*` 请求代理到本地后端。
 
-3. Optional – launch the desktop shell (requires a packaged backend jar):
+3. （可选）启动桌面壳
    ```bash
    cd ../backend
    ./mvnw clean package -DskipTests
@@ -36,11 +35,11 @@ The backend is built with Spring Boot, the SPA frontend uses Vue 3, and the desk
    npm install
    npm run start
    ```
-   Electron boots the backend automatically and stops it when the shell exits.
+   Electron 会在启动时自动拉起 Spring Boot，并在应用退出时尝试终止后端进程。
 
-## Build & Package
+## 构建与打包
 
-- Run automated checks:
+- 执行自动化检查
   ```bash
   cd backend
   ./mvnw test
@@ -49,31 +48,26 @@ The backend is built with Spring Boot, the SPA frontend uses Vue 3, and the desk
   npm run build
   ```
 
-- Create a Windows installer (WiX Toolset is expected in `tools/wix314`):
+- 生成 Windows 安装包（需提前将 WiX Toolset 解压至 `tools/wix314`）
   ```powershell
   $env:WIX = "$(Resolve-Path tools/wix314)"
   $env:PATH = "$env:WIX;" + $env:PATH
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 -AppVersion '1.0.5'
   ```
-  The installer is written to `build/windows/PhotoWatermarkApp-<version>.exe`.
+  安装包会输出到 `build/windows/PhotoWatermarkApp-<版本>.exe`。
 
-## Troubleshooting
+## 常见问题
 
-- **Failed to launch JVM on the second open**  
-  If you close the browser window only, the background `PhotoWatermarkApp.exe` stays alive. A second launch finds the JVM already locked and aborts. Quit from the tray icon or run `taskkill /IM PhotoWatermarkApp.exe /F` before starting again.
+- **第二次启动提示 “Failed to launch JVM”**：首次运行后若只关闭浏览器或前端窗口，后台 `PhotoWatermarkApp.exe` 进程仍在运行。再次双击时运行时被旧进程占用，启动器会报错。请通过托盘图标退出应用，或在 PowerShell 中执行 `taskkill /IM PhotoWatermarkApp.exe /F` 清理进程后再启动。
+- **端口被占用**：在安装目录的 `PhotoWatermarkApp.cfg` 中追加 `-Dserver.port=<新的端口>`，保存后重新启动。
+- **自定义数据目录**：在 `PhotoWatermarkApp.cfg` 中追加 `-Dapp.storage.base-dir=<路径>`，确保目标路径对当前用户可写。找不到目录时，应用会自动回退到 `%APPDATA%/PhotoWatermark` 或 `${user.home}/.photo-watermark`。
 
-- **Port already in use**  
-  Add `-Dserver.port=<new-port>` to `PhotoWatermarkApp.cfg` in the installation directory, then restart.
+## 仓库结构
 
-- **Custom storage directory**  
-  Add `-Dapp.storage.base-dir=<path>` to `PhotoWatermarkApp.cfg`. Ensure the directory is writable for the current user.
+- `backend/`：Spring Boot 服务，实现模板、导出与文件存储接口。
+- `frontend/`：Vue 3 单页应用，负责模板编辑与批量导出界面。
+- `desktop/`：Electron 桌面壳，封装后端并提供桌面窗口入口。
+- `scripts/`：构建与打包脚本。
+- `docs/`：需求说明、发布流程及其他文档。
 
-## Repository Layout
-
-- `backend/` – Spring Boot service exposing template, export, and storage APIs.
-- `frontend/` – Vue 3 single-page app for template management and export workflows.
-- `desktop/` – Electron wrapper that runs the backend alongside a desktop window.
-- `scripts/` – Build and packaging scripts.
-- `docs/` – Additional documentation and release notes.
-
-Refer to the documents under `docs/` for further details.
+更多历史记录与补充说明可参考 `docs/` 目录。
