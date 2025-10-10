@@ -58,7 +58,7 @@ Invoke-Step 'Create Windows installer via jpackage' {
         New-Item -ItemType Directory -Path $buildOutput | Out-Null
     }
 
-    $resolvedOutput = Resolve-Path $buildOutput
+    $resolvedOutput = (Resolve-Path $buildOutput).Path
 
     $args = @(
         '--type', 'exe',
@@ -72,6 +72,18 @@ Invoke-Step 'Create Windows installer via jpackage' {
     )
 
     jpackage @args | Out-Host
+
+    $script:latestInstaller = Join-Path $resolvedOutput "PhotoWatermarkApp-$AppVersion.exe"
+}
+
+Invoke-Step 'Copy installer to repository root' {
+    if (-not (Test-Path $script:latestInstaller)) {
+        throw "Installer not found: $script:latestInstaller"
+    }
+
+    $destination = Join-Path $repoRoot (Split-Path $script:latestInstaller -Leaf)
+    Copy-Item $script:latestInstaller -Destination $destination -Force
+    Write-Host "Installer copied to" $destination -ForegroundColor Green
 }
 
 Write-Host "Package complete. Output directory:" (Resolve-Path $buildOutput) -ForegroundColor Green
