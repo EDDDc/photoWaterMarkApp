@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useImageStore } from '../composables/useImageStore'
 import type { ImageWatermarkConfig, WatermarkConfig } from '../services/api'
 import type { ImportedImageMeta } from '../types/images'
@@ -446,14 +446,19 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
-watch(activeImage, (image) => {
-  if (!image) {
-    currentImageElement.value = null
-    clearCanvas()
-    return
-  }
-  drawImageToCanvas(image)
-})
+watch(
+  activeImage,
+  async (image) => {
+    if (!image) {
+      currentImageElement.value = null
+      clearCanvas()
+      return
+    }
+    await nextTick()
+    drawImageToCanvas(image)
+  },
+  { flush: 'post' },
+)
 
 watch(scaleMode, () => {
   if (currentImageElement.value) {
@@ -473,15 +478,30 @@ watch(
 
 onMounted(() => {
   emit('images-updated', items.value)
-  if (canvasContainer.value && typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => {
+})
+
+watch(
+  canvasContainer,
+  async (element) => {
+    if (resizeObserver) {
+      resizeObserver.disconnect()
+      resizeObserver = null
+    }
+    if (element && typeof ResizeObserver !== 'undefined') {
+      await nextTick()
+      resizeObserver = new ResizeObserver(() => {
+        if (currentImageElement.value) {
+          renderCanvas(currentImageElement.value)
+        }
+      })
+      resizeObserver.observe(element)
       if (currentImageElement.value) {
         renderCanvas(currentImageElement.value)
       }
-    })
-    resizeObserver.observe(canvasContainer.value)
-  }
-})
+    }
+  },
+  { flush: 'post' },
+)
 
 onBeforeUnmount(() => {
   stopLayoutDrag()
