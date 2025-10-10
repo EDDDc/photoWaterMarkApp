@@ -46,6 +46,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 
 4. 在浏览器访问 `http://localhost:8080`，确认前端页面可正常加载与操作；
 5. 如需退出，关闭应用窗口或在任务栏图标上选择退出，Spring Boot 进程会自动终止。
 6. 若需禁用自动打开浏览器，可在安装目录的 `PhotoWatermarkApp.cfg` 中添加 `-Dapp.desktop.auto-open=false` 后重启。
+7. 应用会将模板与导出内容保存到 `%APPDATA%/PhotoWatermark`（或 `${user.home}/.photo-watermark`）。如需自定义，请在安装目录的 `PhotoWatermarkApp.cfg` 中添加 `-Dapp.storage.base-dir=<路径>`，并确保该路径对当前用户可写。
 
 ## 4. 发布到 GitHub Release
 
@@ -65,6 +66,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1 
 
 - **WiX 未找到**：请确认 `candle.exe`、`light.exe` 所在目录已加入 `PATH`，或参考上方命令临时设置环境变量；
 - **端口被占用**：若启动后提示 8080 被占用，可在重新运行前停止占用进程，或在安装目录下的 `PhotoWatermarkApp.cfg` 中添加 `-Dserver.port=<新端口>` 后重启；
+- **启动后无窗口**：如果 `PhotoWatermarkApp.cfg` 指向需要管理员权限的目录，后端会启动失败。应用会自动回退到 `%APPDATA%/PhotoWatermark`，如需自定义请改为当前用户可写的路径后重新启动。
 - **静态资源未更新**：确保在运行 `scripts/package-windows.ps1` 前 `frontend` 构建成功，如遇缓存可加 `npm run build -- --force`。
 
 执行以上步骤后，即可将稳定的 Windows 安装包上传到 GitHub 供助教下载、安装与验收。

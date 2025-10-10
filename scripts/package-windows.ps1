@@ -66,7 +66,6 @@ Invoke-Step 'Create Windows installer via jpackage' {
         '--app-version', $AppVersion,
         '--input', $targetDir,
         '--main-jar', $mainJar,
-        '--main-class', 'com.photowatermarkapp.BackendApplication',
         '--dest', $resolvedOutput,
         '--win-shortcut',
         '--win-dir-chooser'
