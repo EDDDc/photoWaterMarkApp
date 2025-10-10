@@ -71,6 +71,7 @@ Photo Watermark App 是一款面向 Windows 平台的本地图片批量加水印
 ## 常见问题
 
 - **第二次启动提示 “Failed to launch JVM”**：首次运行后若仅关闭浏览器或前端窗口，后台 `PhotoWatermarkApp.exe` 仍在运行。再次双击会因为运行时被占用而失败。请通过托盘图标退出，或执行 `taskkill /IM PhotoWatermarkApp.exe /F` 清理进程后再启动。
+- **上传大文件提示 413 (Content Too Large)**：应用默认支持单批次最多 512MB，如果仍超出，可在安装目录的 `PhotoWatermarkApp.cfg` 中追加 `-Dspring.servlet.multipart.max-request-size=<大小>` 与 `-Dspring.servlet.multipart.max-file-size=<大小>` 后重启。
 - **端口被占用**：在安装目录的 `PhotoWatermarkApp.cfg` 中追加 `-Dserver.port=<新的端口>`，保存后重新启动。
 - **自定义数据目录**：在 `PhotoWatermarkApp.cfg` 中追加 `-Dapp.storage.base-dir=<路径>`，目标路径需对当前用户可写。若配置无效，应用会回退到 `%APPDATA%/PhotoWatermark`（或 `${user.home}/.photo-watermark`）。
 
